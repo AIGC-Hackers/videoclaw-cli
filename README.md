@@ -16,7 +16,7 @@
   <p>
     <img src="https://img.shields.io/badge/license-Modified%20MIT-blue" alt="License" />
     <img src="https://img.shields.io/badge/python-3.12+-green" alt="Python" />
-    <img src="https://img.shields.io/badge/tests-37%20passing-brightgreen" alt="Tests" />
+    <img src="https://img.shields.io/badge/tests-700%2B%20passing-brightgreen" alt="Tests" />
     <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Docker-lightgrey" alt="Platform" />
   </p>
 </div>
@@ -135,6 +135,37 @@ claw flow validate my-pipeline.yaml   # Check without running
 claw flow run my-pipeline.yaml        # Execute the pipeline
 ```
 
+### AI Short Drama Production
+
+VideoClaw includes a complete production pipeline for TikTok-format Western AI short dramas — from script import to published episode:
+
+```bash
+# Import a script and set up the series
+claw drama import script.docx --title "Satan in a Suit" --language en
+
+# Design character turnaround sheets for visual consistency
+claw drama design-characters <series_id>
+
+# Preview Seedance 2.0 prompts before spending API credits
+claw drama preview-prompts <series_id>
+
+# Run the full pipeline: design → generate → audit → fix → export
+claw drama pipeline <series_id> --episode 1
+
+# Or run individual stages
+claw drama run <series_id> --max-shots 5    # Test with first 5 shots
+claw drama audit <series_id>                # Vision QA with Claude
+claw drama audit-regen <series_id>          # Auto-fix failing shots
+claw drama export <series_id>               # Export deliverables
+```
+
+**Key capabilities:**
+- **Seedance 2.0** video generation (9:16 vertical, 720p)
+- **Character consistency** via Universal Reference turnaround sheets
+- **Vision QA** with Claude for automated shot quality review
+- **Self-correcting audit-regen loop** — bad shots are auto-detected and regenerated
+- **Multi-episode** series with cross-episode continuity
+
 ### Multi-Model Orchestration
 
 One pipeline, multiple models. VideoClaw picks the best model for each shot based on your strategy — quality, speed, or cost.
@@ -152,7 +183,16 @@ The Director takes your prompt and uses an LLM to produce a structured productio
 
 ### Video Agents
 
-AI agents that think, act, and self-correct. The Director plans, the Cameraman generates, the Reviewer QA-checks. Bad shot? Auto-retry with improved prompts.
+Protocol-based AI agents that think, act, review, and collaborate. Four built-in agents:
+
+| Agent | Role | Wraps |
+|-------|------|-------|
+| **DirectorAgent** | Production planning, prompt refinement | `Director`, `DramaPlanner` |
+| **CameramanAgent** | Visual prompt enhancement, shot generation | `PromptEnhancer`, `VideoGenerator` |
+| **ReviewerAgent** | Vision QA, quality validation | `VisionAuditor`, `QualityValidator` |
+| **ProducerAgent** | Pipeline orchestration, budget tracking | `DramaRunner`, `CostTracker` |
+
+Agents plug into the DAG Executor via `AgentTeam.install_handlers()` — zero changes to the core pipeline. Third-party agents are auto-discovered via entry points.
 
 ### Built-in Cost Tracking
 
@@ -169,33 +209,37 @@ Designed for local inference on Mac. MPS backend support for PyTorch-based model
 ## Architecture
 
 ```
-  You --> Director Agent --> Planner --> DAG Executor
-              |                              |
-              v                     +--------+--------+
-         Scriptwriter              v        v        v
-         Cameraman              [Sora]  [CogVideo] [Mock]
-         Reviewer                  |        |        |
-              |                    +--------+--------+
-              v                             v
-         Quality Gate --> Compose --> Output
+  You --> AgentTeam --> DirectorAgent --> Planner --> DAG Executor
+              |              |                            |
+              |              v                   +--------+--------+
+              |        CameramanAgent           v        v        v
+              |              |              [Seedance] [Kling]  [Mock]
+              |              v                  |        |        |
+              |        ReviewerAgent           +--------+--------+
+              |              |                          v
+              v              v                   Compose → Render
+         ProducerAgent --> Quality Gate                  |
+                                                         v
+                                                   Output / Publish
 ```
 
-Six-layer design:
+Seven-layer design:
 
 | Layer | Purpose |
 |-------|---------|
 | Interface | CLI (`claw`) + REST API (optional) |
 | Gateway | FastAPI server, WebSocket progress |
-| Agent Runtime | Director, Planner, DAG Executor |
+| Agent Runtime | AgentTeam, Director, Reviewer, Cameraman, Producer |
+| Orchestration | DAG Planner, Executor, Event Bus, State Manager |
 | Generation | Script, Storyboard, Video, TTS, Music, Compose |
-| Model Adapters | Protocol-based adapters (Sora, Mock, etc.) |
-| Distribution | Publishers (YouTube, Bilibili, etc.) |
+| Model Adapters | Protocol-based adapters (Seedance, Kling, OpenAI, etc.) |
+| Distribution | Publishers (YouTube, TikTok, Bilibili) |
 
 ## Supported Models
 
 | Category | Models | Mode |
 |----------|--------|------|
-| Video | Sora (OpenAI), Runway, Kling, CogVideoX, Wan2.2, AnimateDiff | Cloud + Local |
+| Video | Seedance 2.0, Kling, Sora (OpenAI), MiniMax, ZhipuAI, CogVideoX | Cloud + Local |
 | LLM | Claude, GPT, Qwen, DeepSeek, Ollama (via LiteLLM) | Cloud + Local |
 | TTS | Edge-TTS, Fish-Speech, ElevenLabs, ChatTTS | Cloud + Local |
 | Music | Suno, Udio, MusicGen | Cloud + Local |
@@ -224,12 +268,23 @@ claw subtitle <scenes.json>         # Generate SRT/ASS subtitles
 claw flow run <file.yaml>           # Execute a pipeline
 claw flow validate <file.yaml>      # Validate without running
 
-# AI short drama series
-claw drama new <synopsis>           # Create from concept
-claw drama import <script.docx>     # Import complete script
+# AI short drama series (full production pipeline)
+claw drama new <synopsis>           # Create series from concept
+claw drama import <script.docx>     # Import complete script (locked mode)
+claw drama plan <id>                # Plan episodes via LLM
+claw drama script <id>              # Generate episode scripts
+claw drama design-characters <id>   # Generate turnaround sheets
+claw drama design-scenes <id>       # Generate scene reference images
+claw drama assign-voices <id>       # Assign voice profiles
+claw drama preview-prompts <id>     # Preview Seedance 2.0 prompts
+claw drama run <id>                 # Execute generation pipeline
+claw drama audit <id>               # Vision QA with Claude
+claw drama audit-regen <id>         # Auto-fix failing shots
+claw drama pipeline <id>            # Full pipeline (design → run → audit)
+claw drama regen-shot <id> <shot>   # Regenerate single shot
+claw drama export <id>              # Export deliverables
 claw drama list                     # List all series
 claw drama show <id>                # Show series details
-claw drama run <id>                 # Execute generation pipeline
 
 # Management
 claw config show                    # View all config (API keys masked)
@@ -281,7 +336,7 @@ videoclaw/
 │   │   └── ...             # doctor, model, project, template, flow
 │   ├── config.py           # Configuration (Pydantic Settings)
 │   ├── core/               # Director, DAG engine, state, events
-│   ├── agents/             # Video Agent protocol + roles
+│   ├── agents/             # Video Agent framework (Director, Reviewer, Cameraman, Producer)
 │   ├── models/             # Model adapters, registry, LLM wrapper
 │   ├── generation/         # Script, storyboard, video, audio, compose
 │   ├── drama/              # AI short drama orchestration
@@ -334,9 +389,10 @@ uv run ruff check src/ tests/ # Lint
 - [x] **Phase 2**: FastAPI server, WebSocket, storage, publishers, test suite
 - [x] **Phase 3**: ClawFlow YAML engine, integration tests, Docker
 - [x] **Phase 4**: Director LLM integration, GitHub Actions CI, flow templates
-- [ ] **Phase 5**: AI Short Drama orchestration + CLI-driven workflows
-- [ ] **Phase 6**: Plugin marketplace (ClawHub) + industry templates
-- [ ] **Phase 7**: Multi-agent collaboration + quality review loop
+- [x] **Phase 5**: AI Short Drama orchestration, Seedance 2.0, Vision QA, audit-regen loop
+- [x] **Phase 6**: Agent framework (Director, Reviewer, Cameraman, Producer), AgentTeam, entry-point discovery
+- [ ] **Phase 7**: Multi-agent collaboration, MCP server, skill/tool integration
+- [ ] **Phase 8**: Plugin marketplace (ClawHub) + universal video orchestration platform
 
 ## License
 
