@@ -51,6 +51,12 @@ dev = [
 [project.scripts]
 claw = "videoclaw.cli:app"
 
+[project.entry-points."videoclaw.agents"]
+director = "videoclaw.agents.director:DirectorAgent"
+cameraman = "videoclaw.agents.cameraman:CameramanAgent"
+reviewer = "videoclaw.agents.reviewer:ReviewerAgent"
+producer = "videoclaw.agents.producer:ProducerAgent"
+
 [project.entry-points."videoclaw.adapters"]
 openai = "videoclaw.models.adapters.openai_video:OpenAIVideoAdapter"
 mock = "videoclaw.models.adapters.mock:MockVideoAdapter"
