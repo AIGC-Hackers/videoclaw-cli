@@ -63,6 +63,10 @@ class VideoClawConfig(BaseSettings):
     budget_default_usd: float = 10.0
     max_retries: int = 3
 
+    # --- Quality gates ---
+    quality_gate_strict: bool = False
+    duration_tolerance_seconds: float = 1.0
+
     def ensure_dirs(self) -> None:
         """Create project and model cache directories if they don't exist."""
         self.projects_dir.mkdir(parents=True, exist_ok=True)

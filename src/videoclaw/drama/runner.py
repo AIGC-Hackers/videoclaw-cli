@@ -307,12 +307,15 @@ def build_episode_dag(
     }
     violations = validator.validate(series, episode_scripts)
     if violations:
+        if get_config().quality_gate_strict:
+            raise ValueError(
+                f"Quality gate (strict): {len(violations)} violations for "
+                f"episode {episode.number}: {violations}"
+            )
         logger.warning(
             "Quality validation found %d violations for episode %d: %s",
             len(violations), episode.number, violations,
         )
-        # Log but don't block — violations are warnings for now
-        # TODO: make configurable (strict mode raises, lenient mode warns)
 
     # Build drama-specific DAG with enriched params
     dag = _build_drama_dag(state, episode, series, max_shots=max_shots)
