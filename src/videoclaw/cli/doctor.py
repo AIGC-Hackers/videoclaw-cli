@@ -90,6 +90,27 @@ def doctor() -> None:
     )
     checks["models"] = {"ok": model_count > 0, "count": model_count}
 
+    # -- Agents -------------------------------------------------------------
+    from videoclaw.agents.registry import AgentRegistry
+
+    agent_registry = AgentRegistry()
+    agent_registry.discover()
+    agent_count = len(agent_registry)
+    agents_ok = agent_count > 0
+    if agents_ok:
+        roles = ", ".join(a["role"] for a in agent_registry.list_agents())
+        agent_detail = f"{agent_count} agent(s): {roles}"
+        agent_status = status_icon(True)
+    else:
+        agent_detail = "no agents discovered"
+        agent_status = "[yellow]WARN[/yellow]"
+    table.add_row(
+        "Registered agents",
+        agent_status,
+        agent_detail,
+    )
+    checks["agents"] = {"ok": agents_ok, "count": agent_count}
+
     # -- Disk space ---------------------------------------------------------
     try:
         stat = shutil.disk_usage(cfg.projects_dir.resolve())

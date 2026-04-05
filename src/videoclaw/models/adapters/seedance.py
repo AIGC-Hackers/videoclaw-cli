@@ -869,7 +869,7 @@ class SeedanceVideoAdapter:
             ", ".join(content_summary),
         )
 
-        max_retries = 5
+        max_retries = get_config().max_retries
         for attempt in range(max_retries):
             async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_S) as client:
                 resp = await client.post(

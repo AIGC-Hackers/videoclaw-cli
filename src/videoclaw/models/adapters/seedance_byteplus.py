@@ -24,6 +24,7 @@ from videoclaw.models.protocol import (
     ModelCapability,
     ProgressEvent,
 )
+from videoclaw.config import get_config
 from videoclaw.utils import resolve_credential
 
 logger = logging.getLogger(__name__)
@@ -54,7 +55,6 @@ class SeedanceBytePlusAdapter(BaseCloudVideoAdapter):
         api_key: str | None = None,
         api_base: str | None = None,
     ) -> None:
-        from videoclaw.config import get_config
         self._api_key = resolve_credential(
             explicit=api_key, env_vars="BYTEPLUS_API_KEY",
             config_attr="byteplus_api_key",
@@ -168,7 +168,7 @@ class SeedanceBytePlusAdapter(BaseCloudVideoAdapter):
             payload["model"], payload.get("ratio"), payload.get("duration"),
         )
 
-        max_retries = 3
+        max_retries = get_config().max_retries
         for attempt in range(max_retries):
             async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_S) as client:
                 resp = await client.post(

@@ -8,6 +8,7 @@ resolves to the ``app`` instance exported here.
 
 # Version command (lightweight, lives here directly).
 import videoclaw
+import videoclaw.cli.agent_cmd
 import videoclaw.cli.config_cmd
 import videoclaw.cli.cost_cmd
 import videoclaw.cli.doctor
