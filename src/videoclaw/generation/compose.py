@@ -18,9 +18,17 @@ logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Duration tolerance — how much a clip can deviate from the scripted duration
-# before we flag it as misaligned.
+# before we flag it as misaligned.  Configurable via VIDEOCLAW_DURATION_TOLERANCE_SECONDS.
 # ---------------------------------------------------------------------------
-_DURATION_TOLERANCE_SECONDS = 1.0
+
+
+def _get_duration_tolerance() -> float:
+    """Return configured duration tolerance, falling back to 1.0s."""
+    try:
+        from videoclaw.config import get_config
+        return get_config().duration_tolerance_seconds
+    except Exception:
+        return 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -46,7 +54,7 @@ class AlignedClip:
 
     @property
     def is_misaligned(self) -> bool:
-        return self.drift > _DURATION_TOLERANCE_SECONDS
+        return self.drift > _get_duration_tolerance()
 
     @property
     def is_valid(self) -> bool:
@@ -202,7 +210,7 @@ async def validate_composed_duration(
     actual = await get_video_duration(composed_path)
     drift = abs(actual - expected)
 
-    ok = drift <= _DURATION_TOLERANCE_SECONDS
+    ok = drift <= _get_duration_tolerance()
     result = {
         "ok": ok,
         "expected": round(expected, 2),

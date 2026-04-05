@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
@@ -12,6 +13,8 @@ if TYPE_CHECKING:
     from videoclaw.drama.models import DramaManager, DramaSeries, Episode
 
 from rich.panel import Panel
+
+logger = logging.getLogger(__name__)
 
 from videoclaw.cli._app import (
     configure_logging,
@@ -650,19 +653,34 @@ async def _drama_pipeline_async(
             auto_refresh_urls=False,  # Already refreshed in stage 2
         )
 
-        state = await runner.run_episode(series, episode)
-        gen_cost = state.cost_total
-        result["total_cost"] += gen_cost
+        try:
+            state = await runner.run_episode(series, episode)
+            gen_cost = state.cost_total
+            result["total_cost"] += gen_cost
 
-        status_style = "green" if state.status.value == "completed" else "red"
-        console.print(
-            f"  [{status_style}]Generation {state.status.value}[/{status_style}] — "
-            f"${gen_cost:.4f}"
-        )
-        result["stages"]["run"] = {
-            "status": state.status.value,
-            "cost": round(gen_cost, 4),
-        }
+            # Report per-shot status for partial successes
+            completed_shots = sum(
+                1 for s in state.storyboard if s.status.value == "completed"
+            )
+            total_shots = len(state.storyboard)
+            status_style = "green" if state.status.value == "completed" else "red"
+            console.print(
+                f"  [{status_style}]Generation {state.status.value}[/{status_style}] — "
+                f"${gen_cost:.4f} ({completed_shots}/{total_shots} shots completed)"
+            )
+            result["stages"]["run"] = {
+                "status": state.status.value,
+                "cost": round(gen_cost, 4),
+                "completed_shots": completed_shots,
+                "total_shots": total_shots,
+            }
+        except Exception as exc:
+            logger.error("Stage 3 (run) failed: %s", exc)
+            console.print(f"  [red]Generation failed: {exc}[/red]")
+            result["stages"]["run"] = {
+                "status": "failed",
+                "error": str(exc),
+            }
     else:
         console.print("\n[dim]Stage 3/4: Generate Episode — skipped[/dim]")
 
@@ -678,6 +696,8 @@ async def _drama_pipeline_async(
         audit_cost = 0.0
         final_passed = 0
         final_total = len(episode.scenes)
+        any_regen = False
+        last_regen_ids: list[str] = []
 
         for round_num in range(1, audit_rounds + 1):
             console.print(f"  [cyan]Audit round {round_num}/{audit_rounds}...[/cyan]")
@@ -703,11 +723,34 @@ async def _drama_pipeline_async(
                 f"{', '.join(report.regen_required)}[/yellow]"
             )
 
+            last_regen_ids = list(report.regen_required)
             for scene_id in report.regen_required:
+                try:
+                    state = await runner.regenerate_scene(
+                        series, episode, scene_id, recompose=False,
+                    )
+                    audit_cost += state.cost_total
+                    any_regen = True
+                except Exception as exc:
+                    logger.error(
+                        "Failed to regen scene %s: %s", scene_id, exc,
+                    )
+                    console.print(
+                        f"  [red]Scene {scene_id} regen failed: {exc}[/red]"
+                    )
+
+        # Final recompose after audit-regen if any scenes were regenerated
+        if any_regen and last_regen_ids:
+            console.print("  [cyan]Recomposing after audit-regen...[/cyan]")
+            try:
                 state = await runner.regenerate_scene(
-                    series, episode, scene_id, recompose=False,
+                    series, episode, last_regen_ids[-1], recompose=True,
                 )
                 audit_cost += state.cost_total
+                console.print("  [green]Recompose complete[/green]")
+            except Exception as exc:
+                logger.error("Final recompose failed: %s", exc)
+                console.print(f"  [red]Recompose failed: {exc}[/red]")
 
         result["total_cost"] += audit_cost
         result["stages"]["audit_regen"] = {
