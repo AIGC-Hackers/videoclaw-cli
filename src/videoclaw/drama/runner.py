@@ -729,12 +729,14 @@ class DramaRunner:
         max_concurrency: int = 4,
         auto_refresh_urls: bool = True,
         budget_usd: float | None = None,
+        use_agents: bool = False,
     ) -> None:
         self.drama_mgr = drama_manager or DramaManager()
         self.state_mgr = state_manager or StateManager()
         self.max_concurrency = max_concurrency
         self.auto_refresh_urls = auto_refresh_urls
         self.budget_usd = budget_usd
+        self.use_agents = use_agents
 
     async def run_episode(
         self,
@@ -777,6 +779,23 @@ class DramaRunner:
             max_concurrency=self.max_concurrency,
             cost_tracker=tracker,
         )
+
+        # --- Agent mode: plug agents into DAG execution ---
+        if self.use_agents:
+            from videoclaw.agents.registry import AgentRegistry
+            from videoclaw.agents.team import AgentTeam
+
+            registry = AgentRegistry()
+            registry.discover()
+            if len(registry) > 0:
+                team = AgentTeam(registry=registry)
+                team.install_handlers(executor)
+                logger.info(
+                    "Agent mode enabled: %d agents installed",
+                    len(registry),
+                )
+            else:
+                logger.warning("Agent mode requested but no agents discovered")
 
         state = await executor.run()
 

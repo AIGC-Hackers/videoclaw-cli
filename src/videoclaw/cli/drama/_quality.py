@@ -499,6 +499,13 @@ def drama_pipeline(
     concurrency: Annotated[
         int, typer.Option("--concurrency", "-c", help="Max parallel tasks.")
     ] = 4,
+    agents: Annotated[
+        bool,
+        typer.Option(
+            "--agents/--no-agents",
+            help="Enable agent-driven execution (Director, Cameraman, Reviewer).",
+        ),
+    ] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
     """Run the full production pipeline: design -> refresh -> generate -> audit.
@@ -579,6 +586,7 @@ def drama_pipeline(
             _drama_pipeline_async(
                 series, mgr, ep, skip_design, skip_refresh,
                 skip_run, skip_audit, audit_rounds, concurrency,
+                use_agents=agents,
             )
         )
     except Exception as exc:
@@ -600,6 +608,8 @@ async def _drama_pipeline_async(
     skip_audit: bool,
     audit_rounds: int,
     concurrency: int,
+    *,
+    use_agents: bool = False,
 ) -> dict:
     """Execute the full production pipeline stages sequentially."""
     console = get_console()
@@ -651,6 +661,7 @@ async def _drama_pipeline_async(
             drama_manager=mgr,
             max_concurrency=concurrency,
             auto_refresh_urls=False,  # Already refreshed in stage 2
+            use_agents=use_agents,
         )
 
         try:

@@ -231,6 +231,13 @@ def drama_run(
             help="Interactive prompt review before generation (default: on).",
         ),
     ] = True,
+    agents: Annotated[
+        bool,
+        typer.Option(
+            "--agents/--no-agents",
+            help="Enable agent-driven execution (Director, Cameraman, Reviewer plug into DAG).",
+        ),
+    ] = False,
     dry_run: Annotated[
         bool, typer.Option("--dry-run", help="Show execution plan without running.")
     ] = False,
@@ -313,7 +320,7 @@ def drama_run(
         asyncio.run(_drama_run_async(
             series, mgr, start, end, budget,
             concurrency, refresh_urls, max_shots=max_shots,
-            review=review,
+            review=review, use_agents=agents,
         ))
     except typer.Exit:
         raise
@@ -337,6 +344,7 @@ async def _drama_run_async(
     *,
     max_shots: int | None = None,
     review: bool = True,
+    use_agents: bool = False,
 ) -> None:
     console = get_console()
 
@@ -349,6 +357,7 @@ async def _drama_run_async(
         drama_manager=mgr,
         auto_refresh_urls=auto_refresh_urls,
         budget_usd=effective_budget,
+        use_agents=use_agents,
     )
 
     episodes_to_run = [
