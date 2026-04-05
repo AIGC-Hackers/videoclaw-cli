@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from videoclaw.core.events import EventBus
 from videoclaw.core.executor import DAGExecutor
 from videoclaw.core.planner import DAG, TaskNode, TaskType
 from videoclaw.core.state import ProjectState, Shot, StateManager
@@ -16,13 +15,10 @@ from videoclaw.generation.compose import (
     AlignedClip,
     AlignmentReport,
     VideoComposer,
-    _DURATION_TOLERANCE_SECONDS,
-    _SUPPORTED_TRANSITIONS,
     align_clips,
     scenes_needing_regen,
     validate_composed_duration,
 )
-
 
 # ---------------------------------------------------------------------------
 # VideoComposer.compose() -- per-boundary transitions

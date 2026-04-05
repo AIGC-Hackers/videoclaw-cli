@@ -1,7 +1,8 @@
-import pytest
 from unittest.mock import AsyncMock
-from pathlib import Path
-from videoclaw.drama.models import DialogueLine, LineType, VoiceProfile, AudioSegment, AudioType
+
+import pytest
+
+from videoclaw.drama.models import AudioType, DialogueLine, LineType, VoiceProfile
 from videoclaw.generation.audio.tts import TTSManager
 
 

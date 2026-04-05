@@ -7,12 +7,9 @@ from videoclaw.drama.models import (
     DramaScene,
     DramaSeries,
     Episode,
-    ShotScale,
-    ShotType,
     VoiceProfile,
 )
 from videoclaw.drama.runner import build_episode_dag, build_scene_regen_dag
-
 
 # ---------------------------------------------------------------------------
 # DAG structure
@@ -310,7 +307,6 @@ def test_build_scene_regen_dag_propagates_narration_type():
 
 def test_scene_and_prop_refs_passed_to_shots(tmp_path):
     """build_episode_dag should pass scene and prop references from ConsistencyManifest to Shots."""
-    import pathlib
     from videoclaw.drama.models import ConsistencyManifest
 
     # Create dummy reference files so verify_references() passes and verified stays True
@@ -373,8 +369,7 @@ class TestAlignmentRegenLoop:
     @pytest.mark.asyncio
     async def test_skips_when_no_alignment_report(self):
         """Should return state unchanged when no alignment_report exists."""
-        import json
-        from unittest.mock import AsyncMock, MagicMock, patch
+        from unittest.mock import MagicMock
 
         from videoclaw.core.state import ProjectState
         from videoclaw.drama.runner import DramaRunner
@@ -400,7 +395,7 @@ class TestAlignmentRegenLoop:
     async def test_skips_when_aligned(self):
         """Should return state unchanged when all clips are aligned."""
         import json
-        from unittest.mock import AsyncMock, MagicMock, patch
+        from unittest.mock import MagicMock
 
         from videoclaw.core.state import ProjectState
         from videoclaw.drama.runner import DramaRunner
@@ -547,7 +542,7 @@ class TestAlignmentRegenLoop:
     async def test_regen_stops_early_on_failed_state(self):
         """Should stop regen if pipeline state is not 'completed'."""
         import json
-        from unittest.mock import AsyncMock, MagicMock
+        from unittest.mock import MagicMock
 
         from videoclaw.core.state import ProjectState
         from videoclaw.drama.runner import DramaRunner

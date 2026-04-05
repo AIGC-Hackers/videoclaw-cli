@@ -3,6 +3,9 @@
 import pytest
 
 from videoclaw.drama.models import (
+    GENRE_VOICE_RECOMMENDATIONS,
+    NARRATOR_PRESETS,
+    VOICE_PROFILES,
     AudioSegment,
     AudioType,
     Character,
@@ -15,17 +18,13 @@ from videoclaw.drama.models import (
     Episode,
     EpisodeAudioManifest,
     EpisodeStatus,
-    GENRE_VOICE_RECOMMENDATIONS,
     LineType,
-    NARRATOR_PRESETS,
     ShotScale,
     ShotType,
     VoiceProfile,
-    VOICE_PROFILES,
     assign_voice_profile,
     recommend_voice_style,
 )
-
 
 # ---------------------------------------------------------------------------
 # DramaSeries

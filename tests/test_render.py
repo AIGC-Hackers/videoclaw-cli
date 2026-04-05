@@ -1,18 +1,18 @@
 """Tests for the VideoRenderer and the _handle_render executor handler."""
 
-import pytest
 from pathlib import Path
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, patch
+
+import pytest
 
 from videoclaw.core.executor import DAGExecutor
 from videoclaw.core.planner import DAG, TaskNode, TaskType
 from videoclaw.core.state import ProjectState, StateManager
 from videoclaw.generation.render import (
-    VideoRenderer,
-    RenderProfile,
     _ASPECT_TO_RENDER_RESOLUTION,
+    RenderProfile,
+    VideoRenderer,
 )
-
 
 # ---------------------------------------------------------------------------
 # VideoRenderer.build_cmd — FFmpeg command construction
@@ -458,7 +458,7 @@ class TestHandleRender:
 class TestDramaRunnerRenderNode:
     def test_render_node_has_encoding_params(self):
         """build_episode_dag should produce a render node with codec params."""
-        from videoclaw.drama.models import DramaSeries, Episode, DramaScene
+        from videoclaw.drama.models import DramaScene, DramaSeries, Episode
 
         series = DramaSeries(title="Test", model_id="mock")
         ep = Episode(

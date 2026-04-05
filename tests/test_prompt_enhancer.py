@@ -10,13 +10,12 @@ from videoclaw.drama.models import (
     ShotScale,
 )
 from videoclaw.drama.prompt_enhancer import (
-    PromptEnhancer,
-    _MAX_ENGLISH_WORDS,
-    _MAX_CHINESE_CHARS,
     _CJK_CHAR_RE,
+    _MAX_CHINESE_CHARS,
+    _MAX_ENGLISH_WORDS,
+    PromptEnhancer,
     _to_ref_key,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

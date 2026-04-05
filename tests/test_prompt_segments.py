@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from videoclaw.drama.models import ShotScale
 from videoclaw.drama.prompt_segments import (
     MAX_REFERENCE_IMAGES,
@@ -13,7 +11,6 @@ from videoclaw.drama.prompt_segments import (
     ReferenceMedia,
     allocate_reference_slots,
 )
-
 
 # ---------------------------------------------------------------------------
 # ReferenceMedia construction
@@ -504,7 +501,6 @@ class TestFullPipelineIntegration:
 
     def test_text_length_respected_in_content(self):
         """Content text entries should not exceed word limits after enhancement."""
-        import re as _re
         from videoclaw.drama.models import Character, DramaScene, DramaSeries
         from videoclaw.drama.prompt_enhancer import PromptEnhancer
 

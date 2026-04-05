@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import AsyncMock, call
 
 from videoclaw.drama.locale import EN_EPISODE_SCRIPT_PROMPT, EN_SERIES_OUTLINE_PROMPT, get_locale
 from videoclaw.drama.models import (
     Character,
     DramaGenre,
-    DramaScene,
     DramaSeries,
     Episode,
     ShotScale,
@@ -21,7 +21,6 @@ from videoclaw.drama.planner import (
     SERIES_OUTLINE_PROMPT,
     DramaPlanner,
 )
-
 
 # ---------------------------------------------------------------------------
 # Sample English drama data — "The Neighbor" (suburban thriller)

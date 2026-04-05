@@ -9,7 +9,6 @@ import pytest
 
 from videoclaw.generation.audio.music import MusicManager, MusicProvider, SilentMusicProvider
 
-
 # ---------------------------------------------------------------------------
 # SilentMusicProvider tests
 # ---------------------------------------------------------------------------

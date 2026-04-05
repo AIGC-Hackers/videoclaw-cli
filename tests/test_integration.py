@@ -3,12 +3,12 @@
 import pytest
 
 from videoclaw.core.events import EventBus
-from videoclaw.core.planner import build_dag
 from videoclaw.core.executor import DAGExecutor
-from videoclaw.core.state import ProjectState, Shot, StateManager
-from videoclaw.models.registry import ModelRegistry
+from videoclaw.core.planner import build_dag
+from videoclaw.core.state import Shot, StateManager
 from videoclaw.models.adapters.mock import MockVideoAdapter
 from videoclaw.models.protocol import GenerationRequest
+from videoclaw.models.registry import ModelRegistry
 
 
 @pytest.mark.asyncio
@@ -22,6 +22,7 @@ async def test_full_pipeline_with_mock(tmp_path):
     skip LLM calls.  TTS and compose are mocked at the module level.
     """
     from unittest.mock import AsyncMock, patch
+
     from videoclaw.config import VideoClawConfig
 
     # Use tmp_path as projects dir so all handler file I/O goes there

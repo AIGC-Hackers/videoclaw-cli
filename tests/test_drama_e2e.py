@@ -8,26 +8,24 @@ Theme: 这个王妃太狂野 (穿越题材)
 """
 
 import json
-import pytest
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock
-from datetime import datetime
+
+import pytest
 
 from videoclaw.drama.models import (
     Character,
+    DramaManager,
     DramaScene,
     DramaSeries,
-    DramaStatus,
     Episode,
-    EpisodeStatus,
     ShotScale,
     ShotType,
-    DramaManager,
     assign_voice_profile,
 )
 from videoclaw.drama.planner import DramaPlanner
 from videoclaw.drama.runner import build_episode_dag
-
 
 # ---------------------------------------------------------------------------
 # Realistic mock data — 这个王妃太狂野 (穿越/古装)

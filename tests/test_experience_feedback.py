@@ -1,6 +1,4 @@
 """Tests for experience feedback — audit defects → prompt constraints."""
-import pytest
-from pathlib import Path
 
 from videoclaw.drama.prompt_enhancer import PromptEnhancer
 from videoclaw.drama.vision_auditor import AuditLog, EpisodeAuditReport, ShotAuditResult
@@ -84,7 +82,7 @@ class TestLoadAuditConstraints:
 
     def test_learned_constraints_appear_in_enhanced_prompt(self):
         """Learned constraints should appear in the final enhanced prompt."""
-        from videoclaw.drama.models import DramaSeries, Episode, DramaScene, Character, ShotScale
+        from videoclaw.drama.models import Character, DramaScene, DramaSeries, ShotScale
 
         series = DramaSeries(
             series_id="test",

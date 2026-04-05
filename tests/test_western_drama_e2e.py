@@ -9,24 +9,23 @@ Theme: The Neighbor (suburban thriller)
 """
 
 import json
-import pytest
-from pathlib import Path
 from unittest.mock import AsyncMock
+
+import pytest
 
 from videoclaw.drama.models import (
     Character,
+    DramaManager,
     DramaScene,
     DramaSeries,
     Episode,
     ShotScale,
     ShotType,
-    DramaManager,
     assign_voice_profile,
 )
 from videoclaw.drama.planner import DramaPlanner
-from videoclaw.drama.runner import build_episode_dag
 from videoclaw.drama.quality import DramaQualityValidator, validate_western_quality
-
+from videoclaw.drama.runner import build_episode_dag
 
 # ---------------------------------------------------------------------------
 # Realistic mock data — The Neighbor (suburban thriller)

@@ -2,8 +2,8 @@
 
 import pytest
 
-from videoclaw.models.registry import ModelRegistry
 from videoclaw.models.adapters.mock import MockVideoAdapter
+from videoclaw.models.registry import ModelRegistry
 
 
 def test_register_and_get():

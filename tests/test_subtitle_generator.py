@@ -4,7 +4,6 @@ and _handle_compose integration."""
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -17,7 +16,6 @@ from videoclaw.generation.subtitle import (
     _rgb_to_ass_color,
     generate_srt,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures & helpers

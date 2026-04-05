@@ -42,9 +42,6 @@ from videoclaw.drama.models import (
     DramaSeries,
     Episode,
     EpisodeStatus,
-    ShotScale,
-    ShotType,
-    VoiceProfile,
     assign_voice_profile,
 )
 from videoclaw.drama.prompt_enhancer import PromptEnhancer

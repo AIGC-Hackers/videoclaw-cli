@@ -2,9 +2,9 @@ import numpy as np
 import pytest
 
 from videoclaw.drama.frame_analyzer import (
+    TemporalBreak,
     compute_center_ssim,
     detect_temporal_breaks,
-    TemporalBreak,
 )
 
 

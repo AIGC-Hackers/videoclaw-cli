@@ -14,7 +14,7 @@ import os
 import sys
 import time
 import traceback
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -113,8 +113,8 @@ async def generate_character_images(series) -> list[AssetResult]:
 
 async def generate_scene_images(series) -> list[AssetResult]:
     """Generate scene reference images via Evolink Seedream 5.0."""
-    from videoclaw.drama.scene_designer import SceneDesigner
     from videoclaw.drama.models import DramaManager
+    from videoclaw.drama.scene_designer import SceneDesigner
 
     phase_results = []
     mgr = DramaManager()
@@ -268,8 +268,8 @@ async def generate_video_clips(series) -> list[AssetResult]:
 
     # If key is set, attempt generation via DAG runner
     try:
-        from videoclaw.drama.runner import DramaRunner
         from videoclaw.drama.models import DramaManager
+        from videoclaw.drama.runner import DramaRunner
 
         mgr = DramaManager()
         runner = DramaRunner(drama_manager=mgr)
@@ -398,8 +398,12 @@ def _format_srt_time(seconds: float) -> str:
 
 async def main():
     from videoclaw.drama.models import (
-        Character, DramaManager, DramaScene, DramaSeries,
-        Episode, EpisodeStatus, assign_voice_profile,
+        Character,
+        DramaScene,
+        DramaSeries,
+        Episode,
+        EpisodeStatus,
+        assign_voice_profile,
     )
 
     print("=" * 70)

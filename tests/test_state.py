@@ -1,6 +1,5 @@
 """Tests for project state management."""
 
-import json
 from pathlib import Path
 
 from videoclaw.core.state import ProjectState, Shot, ShotStatus, StateManager

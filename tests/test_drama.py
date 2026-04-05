@@ -1,6 +1,7 @@
 """Tests for the drama orchestration module."""
 
 import json
+
 import pytest
 
 from videoclaw.drama.models import (
@@ -17,10 +18,8 @@ from videoclaw.drama.models import (
     ShotScale,
     ShotType,
     VoiceProfile,
-    VOICE_PROFILES,
     assign_voice_profile,
 )
-
 
 # ---------------------------------------------------------------------------
 # DramaSeries model tests
@@ -434,8 +433,9 @@ async def test_script_episode_parses_mock_llm_response():
     }, ensure_ascii=False)
 
     from unittest.mock import AsyncMock
-    from videoclaw.drama.planner import DramaPlanner
+
     from videoclaw.drama.models import ShotScale, ShotType
+    from videoclaw.drama.planner import DramaPlanner
 
     mock_llm = AsyncMock()
     mock_llm.chat = AsyncMock(return_value=mock_llm_response)

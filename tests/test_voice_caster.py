@@ -1,9 +1,11 @@
 """Tests for VoiceCaster — LLM-powered voice casting for multi-role TTS."""
 
-import pytest
 from unittest.mock import AsyncMock
 
+import pytest
+
 from videoclaw.drama.models import (
+    NARRATOR_PRESETS,
     Character,
     DialogueLine,
     DramaGenre,
@@ -11,7 +13,6 @@ from videoclaw.drama.models import (
     DramaSeries,
     Episode,
     LineType,
-    NARRATOR_PRESETS,
     VoiceProfile,
 )
 from videoclaw.generation.audio.voice_caster import VoiceCaster

@@ -1,7 +1,5 @@
 """Tests for AuditLog persistence and experience feedback."""
 import json
-import pytest
-from pathlib import Path
 
 from videoclaw.drama.vision_auditor import AuditLog, EpisodeAuditReport, ShotAuditResult
 

@@ -1,7 +1,8 @@
 """Tests for English voice system (Stream B2)."""
 
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
 
 from videoclaw.drama.locale import (
     EN_GENRE_VOICE_RECOMMENDATIONS,
@@ -12,15 +13,14 @@ from videoclaw.drama.locale import (
 from videoclaw.drama.models import (
     Character,
     DramaGenre,
+    DramaScene,
     DramaSeries,
     Episode,
-    DramaScene,
     LineType,
     VoiceProfile,
     assign_voice_profile,
 )
 from videoclaw.generation.audio.voice_caster import VoiceCaster
-
 
 # ---------------------------------------------------------------------------
 # B2.1 / B2.2 — English voice profiles

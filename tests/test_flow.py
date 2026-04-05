@@ -1,15 +1,13 @@
 """Tests for ClawFlow YAML parser and runner."""
 
-import pytest
-import textwrap
 
+import pytest
 import yaml
 
-from videoclaw.flow.parser import FlowDef, FlowStep, FlowValidationError, parse_flow, load_flow
-from videoclaw.flow.runner import compile_dag, FlowRunner
-from videoclaw.core.planner import TaskType, NodeStatus
+from videoclaw.core.planner import TaskType
 from videoclaw.core.state import StateManager
-
+from videoclaw.flow.parser import FlowValidationError, load_flow, parse_flow
+from videoclaw.flow.runner import FlowRunner, compile_dag
 
 # ---------------------------------------------------------------------------
 # Parser tests
@@ -153,6 +151,7 @@ def test_compile_dag():
 async def test_flow_runner_e2e(tmp_path):
     """End-to-end test: parse a flow, run it with mock handlers, verify completion."""
     from unittest.mock import AsyncMock, patch
+
     from videoclaw.config import VideoClawConfig
     from videoclaw.core.state import Shot
 

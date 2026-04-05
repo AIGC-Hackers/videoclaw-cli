@@ -38,7 +38,7 @@ import subprocess
 import tempfile
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -368,7 +368,7 @@ class AuditLog:
         """Append one audit round record to the log file."""
         record = {
             "round": round_num,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "episode": report.episode_number,
             "results": [r.to_dict() for r in report.shot_results],
             "summary": {
@@ -605,8 +605,8 @@ class VisionAuditor:
     async def _layer1_temporal(self, clip_path: Path) -> tuple[list[str], list[str]]:
         """Layer 1: run frame_analyzer SSIM checks, return (fatals, tolerables)."""
         from videoclaw.drama.frame_analyzer import (
-            extract_frames_as_arrays,
             detect_temporal_breaks,
+            extract_frames_as_arrays,
         )
 
         fatals: list[str] = []

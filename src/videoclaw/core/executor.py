@@ -540,12 +540,11 @@ class DAGExecutor:
 
         # --- Build structured segments for interleaved content (if ref markers present) ---
         if "[ref:" in shot.prompt:
+            from videoclaw.drama.prompt_enhancer import _to_ref_key
             from videoclaw.drama.prompt_segments import (
                 PromptSegmenter,
-                ReferenceMedia,
                 allocate_reference_slots,
             )
-            from videoclaw.drama.prompt_enhancer import _to_ref_key
 
             # Build available refs for slot allocation
             all_available: dict[str, dict[str, str]] = {

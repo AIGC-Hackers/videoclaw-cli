@@ -1,14 +1,14 @@
 """Tests for real DAGExecutor handlers, subtitle generation, and 9:16 aspect ratio."""
 
 import json
-import pytest
 from pathlib import Path
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, patch
 
-from videoclaw.core.events import EventBus
+import pytest
+
 from videoclaw.core.executor import DAGExecutor
-from videoclaw.core.planner import DAG, TaskNode, TaskType, NodeStatus
-from videoclaw.core.state import ProjectState, Shot, ShotStatus, StateManager
+from videoclaw.core.planner import DAG, TaskNode, TaskType
+from videoclaw.core.state import ProjectState, Shot, StateManager
 from videoclaw.drama.models import (
     Character,
     DramaScene,
@@ -18,7 +18,6 @@ from videoclaw.drama.models import (
 )
 from videoclaw.drama.runner import build_episode_dag
 from videoclaw.generation.subtitle import generate_srt
-
 
 # ---------------------------------------------------------------------------
 # Subtitle generation

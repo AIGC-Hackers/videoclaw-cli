@@ -6,7 +6,6 @@ TaskNode.params → _handle_video_gen() → VideoGenerator → GenerationRequest
 
 from __future__ import annotations
 
-import asyncio
 import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -14,12 +13,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from videoclaw.core.planner import TaskNode, TaskType
-from videoclaw.core.state import ProjectState, Shot, ShotStatus
-from videoclaw.drama.models import Character, Episode, DramaScene, DramaSeries
+from videoclaw.core.state import ProjectState, Shot
+from videoclaw.drama.models import Character, DramaScene, DramaSeries, Episode
 from videoclaw.drama.runner import build_episode_dag
 from videoclaw.generation.video import VideoGenerator
-from videoclaw.models.protocol import GenerationRequest, GenerationResult
-
+from videoclaw.models.protocol import GenerationResult
 
 # ---------------------------------------------------------------------------
 # Step 1: Shot.reference_images roundtrip

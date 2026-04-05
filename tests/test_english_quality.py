@@ -8,15 +8,12 @@ Covers:
 
 from __future__ import annotations
 
-import pytest
-
 from videoclaw.drama.models import Character, DramaSeries
 from videoclaw.drama.quality import (
     DramaQualityValidator,
     validate_chinese_quality,
     validate_western_quality,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers — minimal valid fixtures

@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import sys
-import time
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -14,6 +12,7 @@ if str(_PROJECT_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT / "src"))
 
 import logging
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-5s %(name)s: %(message)s", datefmt="%H:%M:%S")
 
 DELIVERABLES = _PROJECT_ROOT / "docs" / "deliverables" / "wind_chaser_satan_in_a_suit"
@@ -118,12 +117,12 @@ async def main():
     print("  RETRY: TTS Audio + Scene Images")
     print("=" * 60)
 
-    print(f"\n--- TTS Audio (EdgeTTS) ---")
-    print(f"  Note: Production should use WaveSpeed API (VIDEOCLAW_WAVESPEED_API_KEY)")
-    print(f"  Current fallback: EdgeTTS (free)\n")
+    print("\n--- TTS Audio (EdgeTTS) ---")
+    print("  Note: Production should use WaveSpeed API (VIDEOCLAW_WAVESPEED_API_KEY)")
+    print("  Current fallback: EdgeTTS (free)\n")
     await generate_tts()
 
-    print(f"\n--- Scene Reference Images (Evolink Seedream 5.0) ---\n")
+    print("\n--- Scene Reference Images (Evolink Seedream 5.0) ---\n")
     await generate_scene_images()
 
 

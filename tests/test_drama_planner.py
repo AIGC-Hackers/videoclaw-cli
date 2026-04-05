@@ -1,20 +1,18 @@
 """Tests for drama planner (planner.py)."""
 
 import json
-import pytest
-
 from unittest.mock import AsyncMock
+
+import pytest
 
 from videoclaw.drama.models import (
     Character,
-    DramaScene,
     DramaSeries,
     Episode,
     ShotScale,
     ShotType,
 )
 from videoclaw.drama.planner import DramaPlanner
-
 
 # ---------------------------------------------------------------------------
 # Mock LLM → DramaScene parsing

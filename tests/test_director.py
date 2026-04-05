@@ -1,12 +1,12 @@
 """Tests for the Director agent."""
 
 import json
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import AsyncMock, patch
 
-from videoclaw.core.director import Director, DIRECTOR_SYSTEM_PROMPT
+from videoclaw.core.director import Director
 from videoclaw.core.state import ProjectState, ShotStatus
-
 
 MOCK_PLAN_RESPONSE = json.dumps({
     "title": "Test Video",
