@@ -20,7 +20,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from videoclaw.config import get_config
 from videoclaw.drama.models import (
     Character,
     ConsistencyManifest,
@@ -32,7 +31,6 @@ from videoclaw.drama.models import (
     SceneBlock,
     ScriptModification,
 )
-from videoclaw.models.llm.litellm_wrapper import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -500,6 +498,8 @@ class DramaPlanner:
 
     def _ensure_llm(self) -> LLMClient:
         if self._llm is None:
+            from videoclaw.config import get_config
+            from videoclaw.models.llm.litellm_wrapper import LLMClient
             self._llm = LLMClient(default_model=get_config().default_llm)
         return self._llm
 

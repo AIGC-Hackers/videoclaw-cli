@@ -11,7 +11,6 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from videoclaw.config import get_config
 from videoclaw.utils import _now_iso
 
 # ---------------------------------------------------------------------------
@@ -870,7 +869,10 @@ class DramaManager:
     """
 
     def __init__(self, base_dir: Path | None = None) -> None:
-        self.base_dir = (base_dir or get_config().projects_dir) / "dramas"
+        if base_dir is None:
+            from videoclaw.config import get_config
+            base_dir = get_config().projects_dir
+        self.base_dir = base_dir / "dramas"
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
     def _series_path(self, series_id: str) -> Path:

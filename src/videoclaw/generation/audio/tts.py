@@ -15,8 +15,6 @@ import os
 from pathlib import Path
 from typing import ClassVar, NamedTuple, Protocol, runtime_checkable
 
-import httpx
-
 from videoclaw.drama.models import (
     AudioSegment,
     AudioType,
@@ -463,6 +461,7 @@ class WaveSpeedTTSProvider:
             "volume": max(0.10, min(10.00, volume)),
         }
 
+        import httpx  # deferred — avoids 229ms startup cost; used only for TTS HTTP calls
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             # Submit synthesis job
             resp = await client.post(self.SUBMIT_URL, json=payload, headers=headers)

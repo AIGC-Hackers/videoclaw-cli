@@ -12,7 +12,6 @@ import json
 import logging
 from typing import Any
 
-from videoclaw.config import get_config
 from videoclaw.drama.models import (
     NARRATOR_PRESETS,
     DialogueLine,
@@ -22,7 +21,6 @@ from videoclaw.drama.models import (
     LineType,
     VoiceProfile,
 )
-from videoclaw.models.llm.litellm_wrapper import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +126,8 @@ class VoiceCaster:
 
     def _ensure_llm(self) -> LLMClient:
         if self._llm is None:
+            from videoclaw.config import get_config
+            from videoclaw.models.llm.litellm_wrapper import LLMClient
             self._llm = LLMClient(default_model=get_config().default_llm)
         return self._llm
 
