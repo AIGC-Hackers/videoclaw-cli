@@ -31,6 +31,19 @@ logger = logging.getLogger(__name__)
 NodeHandler = Callable[[TaskNode, ProjectState], Coroutine[Any, Any, Any]]
 
 
+def _build_actual_start_map(alignment: Any, transition_dur: float = 0.5) -> dict[str, float]:
+    """Build scene_id → cumulative actual start-time map from an alignment report."""
+    result: dict[str, float] = {}
+    cumulative = 0.0
+    for i, clip in enumerate(alignment.clips):
+        result[clip.scene_id] = cumulative
+        if i < len(alignment.clips) - 1:
+            cumulative += clip.actual_duration - transition_dur
+        else:
+            cumulative += clip.actual_duration
+    return result
+
+
 class DAGExecutor:
     """Execute a :class:`DAG` asynchronously, honouring dependency order.
 
@@ -1207,16 +1220,7 @@ class DAGExecutor:
         audio_tracks: list[AudioTrack] = []
 
         # Build scene_id → cumulative actual start time map for audio re-sync
-        actual_start_map: dict[str, float] = {}
-        if alignment:
-            cumulative = 0.0
-            transition_dur = 0.5  # same default as compose
-            for i, clip in enumerate(alignment.clips):
-                actual_start_map[clip.scene_id] = cumulative
-                if i < len(alignment.clips) - 1:
-                    cumulative += clip.actual_duration - transition_dur
-                else:
-                    cumulative += clip.actual_duration
+        actual_start_map: dict[str, float] = _build_actual_start_map(alignment) if alignment else {}
 
         raw_manifest = state.assets.get("audio_manifest")
         if raw_manifest:

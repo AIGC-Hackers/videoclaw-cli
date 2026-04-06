@@ -740,6 +740,16 @@ def build_scene_regen_dag(
     return dag
 
 
+def _extract_cliffhanger(script: str | None) -> str | None:
+    """Extract cliffhanger text from a JSON-encoded episode script string."""
+    if not script:
+        return None
+    try:
+        return _json.loads(script).get("cliffhanger")
+    except (TypeError, _json.JSONDecodeError):
+        return None
+
+
 class DramaRunner:
     """Runs drama episodes through the VideoClaw pipeline sequentially.
 
@@ -932,22 +942,14 @@ class DramaRunner:
         if episodes_to_run:
             prev_num = episodes_to_run[0].number - 1
             for ep in series.episodes:
-                if ep.number == prev_num and ep.script:
-                    try:
-                        prev_cliffhanger = _json.loads(ep.script).get("cliffhanger")
-                    except (TypeError, _json.JSONDecodeError):
-                        pass
+                if ep.number == prev_num:
+                    prev_cliffhanger = _extract_cliffhanger(ep.script)
                     break
 
         for episode in episodes_to_run:
             if episode.status == EpisodeStatus.COMPLETED:
                 logger.info("Skipping completed episode %d", episode.number)
-                # Still extract cliffhanger for next episode
-                if episode.script:
-                    try:
-                        prev_cliffhanger = _json.loads(episode.script).get("cliffhanger")
-                    except (TypeError, _json.JSONDecodeError):
-                        pass
+                prev_cliffhanger = _extract_cliffhanger(episode.script)
                 continue
 
             # Script the episode if not already scripted (with cliffhanger threading)
@@ -975,12 +977,7 @@ class DramaRunner:
             try:
                 await self.run_episode(series, episode, max_shots=max_shots)
                 logger.info("Episode %d completed (cost=$%.4f)", episode.number, episode.cost)
-                # Extract cliffhanger for next episode
-                if episode.script:
-                    try:
-                        prev_cliffhanger = _json.loads(episode.script).get("cliffhanger")
-                    except (TypeError, _json.JSONDecodeError):
-                        pass
+                prev_cliffhanger = _extract_cliffhanger(episode.script)
             except Exception:
                 logger.exception("Episode %d failed", episode.number)
                 episode.status = EpisodeStatus.FAILED
