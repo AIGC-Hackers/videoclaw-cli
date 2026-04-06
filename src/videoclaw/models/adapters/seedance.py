@@ -444,6 +444,18 @@ class SeedanceVideoAdapter:
             self._http_client = httpx.AsyncClient(timeout=_HTTP_TIMEOUT_S)
         return self._http_client
 
+    async def close(self) -> None:
+        """Close the shared HTTP client and release connections."""
+        if self._http_client is not None:
+            await self._http_client.aclose()
+            self._http_client = None
+
+    async def __aenter__(self) -> "SeedanceVideoAdapter":
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        await self.close()
+
     # ------------------------------------------------------------------
     # Protocol properties
     # ------------------------------------------------------------------
