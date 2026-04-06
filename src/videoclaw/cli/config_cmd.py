@@ -5,8 +5,6 @@ from __future__ import annotations
 import os
 import shutil
 
-from rich.table import Table
-
 from videoclaw.cli._app import config_app, status_icon
 from videoclaw.cli._output import get_console, get_output
 from videoclaw.config import get_config
@@ -46,6 +44,7 @@ def config_show() -> None:
         "google_api_key": cfg.google_api_key,
     }
 
+    from rich.table import Table
     table = Table(title="VideoClaw Configuration", show_header=True, header_style="bold cyan")
     table.add_column("Key", style="cyan", min_width=28)
     table.add_column("Value", style="white")
@@ -106,6 +105,7 @@ def config_check() -> None:
     cfg = get_config()
     checks: dict[str, dict] = {}
 
+    from rich.table import Table
     table = Table(title="Configuration Check", show_header=True, header_style="bold cyan")
     table.add_column("Check", style="white", min_width=30)
     table.add_column("Status", justify="center", width=8)

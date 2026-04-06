@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from rich.table import Table
-
 from videoclaw.cli._app import agent_app
 from videoclaw.cli._output import get_console, get_output
 
@@ -31,6 +29,7 @@ def agent_list() -> None:
         out.emit()
         return
 
+    from rich.table import Table
     table = Table(
         title="Registered Agents",
         show_header=True,

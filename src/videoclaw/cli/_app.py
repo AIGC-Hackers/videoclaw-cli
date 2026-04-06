@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from rich.logging import RichHandler
 
 import videoclaw
 from videoclaw.cli._output import get_console, get_output
@@ -117,6 +116,7 @@ def show_banner() -> None:
 def configure_logging(verbose: bool = False) -> None:
     """Set up Rich-based logging."""
     level = logging.DEBUG if verbose else logging.INFO
+    from rich.logging import RichHandler
     logging.basicConfig(
         level=level,
         format="%(message)s",
