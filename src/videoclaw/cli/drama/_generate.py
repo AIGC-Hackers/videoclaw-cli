@@ -387,7 +387,7 @@ async def _drama_run_async(
             with console.status(f"[cyan]Scripting episode {ep.number}...", spinner="dots"):
                 script_data = await planner.script_episode(series, ep, prev_cliffhanger)
             prev_cliffhanger = script_data.get("cliffhanger")
-            mgr.save(series)
+            await mgr.save_async(series)
             console.print(f"  Scenes: {len(ep.scenes)}")
 
         # --- Prompt review breakpoint ---
@@ -425,7 +425,7 @@ async def _drama_run_async(
                 # Filter episode scenes to only confirmed ones for generation
                 ep.scenes = confirmed_scenes
 
-            mgr.save(series)
+            await mgr.save_async(series)
 
         # Archive confirmed prompts as deliverable
         import json as _json
