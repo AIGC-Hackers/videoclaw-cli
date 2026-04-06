@@ -13,6 +13,7 @@ Production flow::
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from pathlib import Path
@@ -285,30 +286,27 @@ class SceneDesigner:
 
         logger.info("Extracted %d unique locations", len(locations))
 
-        for loc in locations:
+        sem = asyncio.Semaphore(3)
+
+        async def _gen_location(loc) -> None:  # type: ignore[no-untyped-def]
             if loc.reference_image and not force:
                 logger.info("Skipping location %r (already has image)", loc.name)
-                continue
-
+                return
             prompt = SCENE_IMAGE_PROMPT.format(
                 description=loc.description,
                 style_line=style_line,
                 lighting="natural lighting, golden hour" if "outdoor" in loc.description.lower()
                 else "soft interior lighting, warm tones",
             )
-
             safe_name = re.sub(r"[^\w\-]", "_", loc.name).strip("_")[:50]
             filename = f"scene_{safe_name}.png"
-
             logger.info("Generating scene reference for %r", loc.name)
-            path = await gen.generate(
-                prompt,
-                output_dir=scene_dir,
-                filename=filename,
-                size="16:9",
-            )
+            async with sem:
+                path = await gen.generate(prompt, output_dir=scene_dir, filename=filename, size="16:9")
             loc.reference_image = str(path)
             loc.reference_image_url = getattr(gen, "last_image_url", None)
+
+        await asyncio.gather(*[_gen_location(loc) for loc in locations])
 
         # Persist to series metadata and consistency manifest
         series.metadata["locations"] = [loc.to_dict() for loc in locations]
@@ -350,29 +348,23 @@ class SceneDesigner:
         logger.info("Extracted %d recurring props: %s",
                      len(props), [p.name for p in props])
 
-        for prop in props:
+        sem = asyncio.Semaphore(3)
+
+        async def _gen_prop(prop) -> None:  # type: ignore[no-untyped-def]
             if prop.reference_image and not force:
                 logger.info("Skipping prop %r (already has image)", prop.name)
-                continue
-
-            prompt = PROP_IMAGE_PROMPT.format(
-                description=prop.description,
-                style_line=style_line,
-            )
-
+                return
+            prompt = PROP_IMAGE_PROMPT.format(description=prop.description, style_line=style_line)
             safe_name = re.sub(r"[^\w\-]", "_", prop.name).strip("_")[:50]
             filename = f"prop_{safe_name}.png"
-
             logger.info("Generating prop reference for %r (used in %d scenes)",
-                         prop.name, len(prop.scenes_used))
-            path = await gen.generate(
-                prompt,
-                output_dir=prop_dir,
-                filename=filename,
-                size="1:1",
-            )
+                        prop.name, len(prop.scenes_used))
+            async with sem:
+                path = await gen.generate(prompt, output_dir=prop_dir, filename=filename, size="1:1")
             prop.reference_image = str(path)
             prop.reference_image_url = getattr(gen, "last_image_url", None)
+
+        await asyncio.gather(*[_gen_prop(prop) for prop in props])
 
         # Persist to series metadata and consistency manifest
         series.metadata["props"] = [p.to_dict() for p in props]
