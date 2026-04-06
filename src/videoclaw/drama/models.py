@@ -98,7 +98,7 @@ class DramaGenre(StrEnum):
 # Data models
 # ---------------------------------------------------------------------------
 
-@dataclass
+@dataclass(slots=True)
 class Character:
     """A recurring character in the drama series."""
 

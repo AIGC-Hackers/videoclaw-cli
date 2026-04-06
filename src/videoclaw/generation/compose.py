@@ -37,7 +37,7 @@ def _get_duration_tolerance() -> float:
 # Alignment data model
 # ---------------------------------------------------------------------------
 
-@dataclass
+@dataclass(slots=True)
 class AlignedClip:
     """A video clip matched to its scene with actual and scripted durations."""
 
@@ -64,7 +64,7 @@ class AlignedClip:
         return self.has_video_stream and self.integrity_error is None
 
 
-@dataclass
+@dataclass(slots=True)
 class AlignmentReport:
     """Result of pre-compose alignment check."""
 
@@ -268,7 +268,7 @@ class AudioType(StrEnum):
     SFX = "sfx"
 
 
-@dataclass
+@dataclass(slots=True)
 class AudioTrack:
     """An audio source to be mixed into the final video."""
 

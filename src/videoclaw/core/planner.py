@@ -37,7 +37,7 @@ class NodeStatus(StrEnum):
 # Data model
 # ---------------------------------------------------------------------------
 
-@dataclass
+@dataclass(slots=True)
 class TaskNode:
     node_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     task_type: TaskType = TaskType.SCRIPT_GEN
