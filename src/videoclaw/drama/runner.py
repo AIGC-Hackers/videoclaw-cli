@@ -940,11 +940,10 @@ class DramaRunner:
         # Retrieve cliffhanger from the episode before the first one we run
         prev_cliffhanger: str | None = None
         if episodes_to_run:
-            prev_num = episodes_to_run[0].number - 1
-            for ep in series.episodes:
-                if ep.number == prev_num:
-                    prev_cliffhanger = _extract_cliffhanger(ep.script)
-                    break
+            episode_by_num = {ep.number: ep for ep in series.episodes}
+            prev_ep = episode_by_num.get(episodes_to_run[0].number - 1)
+            if prev_ep:
+                prev_cliffhanger = _extract_cliffhanger(prev_ep.script)
 
         for episode in episodes_to_run:
             if episode.status == EpisodeStatus.COMPLETED:

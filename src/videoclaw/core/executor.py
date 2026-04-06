@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json as _json
 import logging
+import shutil
 import time as _time
 from collections.abc import Callable, Coroutine
 from pathlib import Path
@@ -30,6 +33,21 @@ logger = logging.getLogger(__name__)
 
 # Type alias for an async handler that processes a single task node.
 NodeHandler = Callable[[TaskNode, ProjectState], Coroutine[Any, Any, Any]]
+
+# Maps TaskType → cost bucketing string; built once at module load to avoid
+# per-task-completion dict allocation in _record_cost().
+_TASK_TYPE_MAP: dict[TaskType, str] = {
+    TaskType.VIDEO_GEN: "video_gen",
+    TaskType.TTS: "tts",
+    TaskType.PER_SCENE_TTS: "tts",
+    TaskType.SCRIPT_GEN: "llm",
+    TaskType.STORYBOARD: "llm",
+    TaskType.SCENE_VALIDATE: "validate",
+    TaskType.SUBTITLE_GEN: "subtitle",
+    TaskType.MUSIC: "music",
+    TaskType.COMPOSE: "compose",
+    TaskType.RENDER: "render",
+}
 
 
 def _build_actual_start_map(alignment: Any, transition_dur: float = 0.5) -> dict[str, float]:
@@ -264,20 +282,6 @@ class DAGExecutor:
             model_id = result.get("model_id", node.params.get("model_id", "unknown"))
             video_seconds = float(result.get("video_seconds", 0.0))
 
-        # Map TaskType to task_type string for bucketing
-        task_type_map = {
-            TaskType.VIDEO_GEN: "video_gen",
-            TaskType.TTS: "tts",
-            TaskType.PER_SCENE_TTS: "tts",
-            TaskType.SCRIPT_GEN: "llm",
-            TaskType.STORYBOARD: "llm",
-            TaskType.SCENE_VALIDATE: "validate",
-            TaskType.SUBTITLE_GEN: "subtitle",
-            TaskType.MUSIC: "music",
-            TaskType.COMPOSE: "compose",
-            TaskType.RENDER: "render",
-        }
-
         record = CostRecord(
             task_id=node.node_id,
             model_id=model_id,
@@ -285,7 +289,7 @@ class DAGExecutor:
             api_cost_usd=cost_usd,
             compute_cost_usd=0.0,
             duration_seconds=duration_seconds,
-            task_type=task_type_map.get(node.task_type, node.task_type.value),
+            task_type=_TASK_TYPE_MAP.get(node.task_type, node.task_type.value),
             video_seconds=video_seconds,
             retries=retries,
         )
@@ -626,8 +630,6 @@ class DAGExecutor:
 
         # Persist video data
         if result.video_data:
-            import hashlib
-
             video_hash = hashlib.md5(result.video_data).hexdigest()[:8]
             output_dir = Path(self._config.projects_dir) / state.project_id / "shots"
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -657,9 +659,6 @@ class DAGExecutor:
         In generic mode (no scenes), falls back to a single
         ``generate_voiceover()`` call for backward compatibility.
         """
-        import json as _json
-        from pathlib import Path
-
         from videoclaw.generation.audio.tts import TTSManager
 
         tts = TTSManager()
@@ -788,9 +787,6 @@ class DAGExecutor:
         ``state.assets["tts_scene_{scene_id}"]`` as JSON-serialised AudioSegment
         dicts so the downstream subtitle_gen node can aggregate them.
         """
-        import json as _json
-        from pathlib import Path
-
         from videoclaw.generation.audio.tts import TTSManager
 
         tts = TTSManager()
@@ -900,9 +896,6 @@ class DAGExecutor:
         to build an :class:`EpisodeAudioManifest` for accurate timing, then
         delegates to :class:`SubtitleGenerator`.
         """
-        import json as _json
-        from pathlib import Path
-
         from videoclaw.generation.subtitle import SubtitleGenerator
 
         project_dir = Path(self._config.projects_dir) / state.project_id
@@ -979,8 +972,6 @@ class DAGExecutor:
 
     async def _handle_music(self, node: TaskNode, state: ProjectState) -> Any:
         """Generate background music track for the episode."""
-        from pathlib import Path
-
         from videoclaw.generation.audio.music import MusicManager
 
         project_dir = Path(self._config.projects_dir) / state.project_id
@@ -1019,9 +1010,6 @@ class DAGExecutor:
         read from ``state.assets["subtitles"]``.  Audio segments are aggregated
         by ``subtitle_gen`` into ``state.assets["tts_audio"]``.
         """
-        import json as _json
-        from pathlib import Path
-
         from videoclaw.generation.compose import (
             AlignmentReport,
             AudioTrack,
@@ -1264,7 +1252,6 @@ class DAGExecutor:
                 output_path=output_path,
             )
         else:
-            import shutil
             shutil.copy2(composed_path, output_path)
 
         state.assets["composed_video"] = str(output_path)
@@ -1276,9 +1263,6 @@ class DAGExecutor:
 
         Falls back to a simple file copy if FFmpeg encoding fails.
         """
-        import shutil
-        from pathlib import Path
-
         from videoclaw.generation.render import _ASPECT_TO_RENDER_RESOLUTION, VideoRenderer
 
         project_dir = Path(self._config.projects_dir) / state.project_id
