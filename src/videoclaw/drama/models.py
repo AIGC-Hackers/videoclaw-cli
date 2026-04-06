@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import uuid
 from dataclasses import asdict, dataclass, field, fields
 from enum import StrEnum
@@ -906,8 +907,6 @@ class DramaManager:
         ]
 
     def delete(self, series_id: str) -> None:
-        import shutil
-
         series_dir = self.base_dir / series_id
         if series_dir.exists():
             shutil.rmtree(series_dir)

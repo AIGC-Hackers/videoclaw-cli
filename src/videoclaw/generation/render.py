@@ -8,6 +8,7 @@ and optional watermark overlay.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -196,7 +197,6 @@ class VideoRenderer:
 
         # --- Metadata (sanitized to prevent injection) ---
         if metadata:
-            import re
             for key, value in metadata.items():
                 # Only allow safe characters in metadata keys/values
                 safe_key = re.sub(r"[^a-zA-Z0-9_\-]", "", key)

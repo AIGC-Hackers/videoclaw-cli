@@ -927,7 +927,6 @@ class DramaPlanner:
 
         # Try fixing common LLM JSON issues: unescaped quotes in strings
         # e.g., "dialogue": "He said "hello" to her" -> needs escaping
-        import re
         fixed = text
         # Fix unescaped newlines in strings
         fixed = re.sub(r'(?<=": ")([^"]*?)\n([^"]*?)(?=")', r'\1\\n\2', fixed)
