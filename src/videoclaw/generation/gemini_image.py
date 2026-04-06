@@ -13,6 +13,7 @@ Environment variables
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 from pathlib import Path
@@ -108,7 +109,7 @@ class GeminiImageGenerator(BaseImageGenerator):
             if not image_bytes:
                 raise RuntimeError(f"No image data in response: {data}")
 
-            output_path.write_bytes(image_bytes)
+            await asyncio.to_thread(output_path.write_bytes, image_bytes)
 
         logger.info("[gemini-image] Saved: %s", output_path)
         return output_path

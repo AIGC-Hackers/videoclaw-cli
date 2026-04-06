@@ -209,8 +209,8 @@ class AudioPostProcessor:
         audio_filter = self.get_filter_for(line_type)
 
         if not audio_filter:
-            # No processing needed -- straight copy.
-            shutil.copy2(input_path, output_path)
+            # No processing needed -- straight copy (offloaded to avoid blocking event loop)
+            await asyncio.to_thread(shutil.copy2, input_path, output_path)
             logger.debug(
                 "No filter for %s; copied %s -> %s",
                 line_type.value,

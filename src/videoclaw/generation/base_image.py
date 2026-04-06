@@ -65,7 +65,7 @@ class BaseImageGenerator(ABC):
         self.last_image_url = image_url
         img_resp = await client.get(image_url, timeout=60.0)
         img_resp.raise_for_status()
-        output_path.write_bytes(img_resp.content)
+        await asyncio.to_thread(output_path.write_bytes, img_resp.content)
         return output_path
 
     async def _poll_until_ready(
