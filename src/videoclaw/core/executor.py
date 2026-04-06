@@ -152,7 +152,7 @@ class DAGExecutor:
                 / "cost.json"
             )
             try:
-                self.cost_tracker.save_ledger(cost_path)
+                await asyncio.to_thread(self.cost_tracker.save_ledger, cost_path)
             except (OSError, ValueError):
                 logger.exception("Failed to save cost ledger for %s", self.state.project_id)
 
