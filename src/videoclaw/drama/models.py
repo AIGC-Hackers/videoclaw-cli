@@ -605,7 +605,7 @@ class SceneBlock:
         return block
 
 
-@dataclass
+@dataclass(slots=True)
 class Episode:
     """A single episode in a drama series.
 
@@ -689,7 +689,7 @@ class Episode:
         return ep
 
 
-@dataclass
+@dataclass(slots=True)
 class ScriptModification:
     """A proposed modification to a locked script that requires user approval.
 
@@ -772,7 +772,7 @@ class ConsistencyManifest:
         return missing
 
 
-@dataclass
+@dataclass(slots=True)
 class DramaSeries:
     """A complete short drama series with episodes and characters."""
 

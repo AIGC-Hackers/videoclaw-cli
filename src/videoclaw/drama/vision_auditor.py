@@ -199,7 +199,7 @@ Empty lists = clean shot. Be pragmatic: if a viewer on a phone wouldn't notice i
 # Data classes
 # ---------------------------------------------------------------------------
 
-@dataclass
+@dataclass(slots=True)
 class ShotAuditResult:
     shot_id: str
     passed: bool
@@ -250,7 +250,7 @@ class ShotAuditResult:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class EpisodeAuditReport:
     series_id: str
     episode_number: int
