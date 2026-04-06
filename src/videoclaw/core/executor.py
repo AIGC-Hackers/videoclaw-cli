@@ -1006,7 +1006,7 @@ class DAGExecutor:
             state.assets["music"] = str(path)
             logger.info("[music] Generated BGM -> %s", path)
             return {"music_path": str(path), "duration": duration}
-        except Exception as exc:
+        except (RuntimeError, OSError, asyncio.TimeoutError, ImportError) as exc:
             logger.warning("[music] BGM generation failed: %s, skipping", exc)
             state.assets["music"] = ""
             return {"status": "skipped", "reason": str(exc)}

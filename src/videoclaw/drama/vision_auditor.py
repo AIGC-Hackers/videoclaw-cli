@@ -568,7 +568,7 @@ class VisionAuditor:
                         f"duration drift {drift:.1f}s "
                         f"(actual {duration:.1f}s vs scripted {scene.duration_seconds:.1f}s)"
                     )
-        except Exception as exc:
+        except (subprocess.SubprocessError, OSError, ValueError) as exc:
             logger.warning("Layer 0 ffprobe failed for %s: %s", scene.scene_id, exc)
             all_fatals.append(f"ffprobe error: {exc}")
 
@@ -628,7 +628,7 @@ class VisionAuditor:
                     fatals.append(label)
                 else:
                     tolerables.append(label)
-        except Exception as exc:
+        except (subprocess.SubprocessError, OSError, ValueError, ImportError) as exc:
             logger.warning("Layer 1 frame analysis failed for %s: %s", clip_path.name, exc)
             tolerables.append("layer1_analysis_unavailable")
         return fatals, tolerables
