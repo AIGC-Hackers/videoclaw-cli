@@ -23,7 +23,7 @@ class ReviewVerdict(StrEnum):
     REJECT = "reject"
 
 
-@dataclass
+@dataclass(slots=True)
 class AgentPlan:
     """An agent's intended actions."""
 
@@ -32,7 +32,7 @@ class AgentPlan:
     reasoning: str = ""
 
 
-@dataclass
+@dataclass(slots=True)
 class AgentStep:
     """A single step in an agent's plan."""
 
@@ -41,7 +41,7 @@ class AgentStep:
     description: str = ""
 
 
-@dataclass
+@dataclass(slots=True)
 class AgentResult:
     """Result of an agent's action."""
 
@@ -52,7 +52,7 @@ class AgentResult:
     cost_usd: float = 0.0
 
 
-@dataclass
+@dataclass(slots=True)
 class AgentMessage:
     """Inter-agent communication message."""
 
@@ -62,7 +62,7 @@ class AgentMessage:
     data: dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass
+@dataclass(slots=True)
 class ReviewResult:
     """Quality review result from the Reviewer agent."""
 

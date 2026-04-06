@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(slots=True)
 class ScriptSection:
     """A single timed section within a video script."""
 
@@ -55,7 +55,7 @@ class ScriptSection:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class Script:
     """A complete video script with titled sections and voice-over text."""
 
