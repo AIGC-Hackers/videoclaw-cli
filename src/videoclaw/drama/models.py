@@ -291,7 +291,7 @@ class AudioSegment:
         return cls(**data)
 
 
-@dataclass
+@dataclass(slots=True)
 class EpisodeAudioManifest:
     """Audio manifest describing all audio segments for an episode."""
 
@@ -556,7 +556,7 @@ def assign_voice_profile(character: Character, language: str = "zh") -> Characte
     return character
 
 
-@dataclass
+@dataclass(slots=True)
 class SceneBlock:
     """A logical scene grouping multiple shots (分镜) with shared properties.
 
@@ -715,7 +715,7 @@ class ScriptModification:
         return cls(**{k: v for k, v in data.items() if k in known})
 
 
-@dataclass
+@dataclass(slots=True)
 class ConsistencyManifest:
     """Pre-generation consistency constraints for multi-clip coherence.
 

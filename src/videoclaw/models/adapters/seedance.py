@@ -60,6 +60,7 @@ import asyncio
 import base64
 import logging
 import os
+import subprocess
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -219,7 +220,6 @@ _AUDIO_MAX_SEGMENTS = 3
 
 def _ffprobe_dimensions(path: str) -> tuple[int, int] | None:
     """Probe image/video dimensions. Returns (width, height) or None."""
-    import subprocess
     try:
         probe = subprocess.run(
             [
@@ -239,7 +239,6 @@ def _ffprobe_dimensions(path: str) -> tuple[int, int] | None:
 
 def _ffprobe_duration(path: str) -> float | None:
     """Probe media duration in seconds. Returns float or None."""
-    import subprocess
     try:
         probe = subprocess.run(
             [
@@ -257,7 +256,6 @@ def _ffprobe_duration(path: str) -> float | None:
 
 def _ffmpeg_resize_image(src: str, dst: str, max_px: int) -> bool:
     """Resize image to fit within max_px longest side, convert to JPEG."""
-    import subprocess
     dims = _ffprobe_dimensions(src)
     if not dims:
         return False
