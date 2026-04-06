@@ -22,7 +22,7 @@ from videoclaw.drama.models import (
 # Subtitle configuration
 # ---------------------------------------------------------------------------
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SubtitleConfig:
     """Language-specific subtitle rendering parameters."""
 
@@ -40,7 +40,7 @@ class SubtitleConfig:
 # Locale dataclass
 # ---------------------------------------------------------------------------
 
-@dataclass
+@dataclass(slots=True)
 class DramaLocale:
     """All locale-specific data for a drama production language/market."""
 

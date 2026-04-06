@@ -71,7 +71,7 @@ _VAR_PATTERN = re.compile(r"\{\{(\w+)\}\}")
 # Data models
 # ---------------------------------------------------------------------------
 
-@dataclass
+@dataclass(slots=True)
 class FlowStep:
     """A single step in a flow definition."""
 
@@ -89,7 +89,7 @@ class FlowStep:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class FlowDef:
     """Complete flow definition parsed from YAML."""
 

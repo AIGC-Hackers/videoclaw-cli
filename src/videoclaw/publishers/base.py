@@ -16,7 +16,7 @@ class PublishStatus(StrEnum):
     FAILED = "failed"
 
 
-@dataclass
+@dataclass(slots=True)
 class PublishRequest:
     video_path: Path
     title: str
@@ -27,7 +27,7 @@ class PublishRequest:
     extra: dict = field(default_factory=dict)
 
 
-@dataclass
+@dataclass(slots=True)
 class PublishResult:
     platform: str
     status: PublishStatus

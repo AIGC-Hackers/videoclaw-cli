@@ -25,7 +25,7 @@ from PIL import Image
 # ---------------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(slots=True)
 class TemporalBreak:
     """A detected discontinuity between two adjacent frames."""
 

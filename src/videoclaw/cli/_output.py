@@ -26,7 +26,7 @@ from rich.console import Console
 import videoclaw
 
 
-@dataclass
+@dataclass(slots=True)
 class OutputContext:
     """Tracks JSON output state for the current CLI invocation."""
 
