@@ -7,6 +7,7 @@ dialogue, inner monologue) for downstream TTS synthesis.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -262,12 +263,12 @@ class VoiceCaster:
         llm = self._ensure_llm()
         from videoclaw.drama.locale import get_locale
         locale = get_locale(language)
-        all_lines: list[DialogueLine] = []
+        system_prompt = locale.dialogue_extraction_prompt or DIALOGUE_EXTRACTION_PROMPT
+        sem = asyncio.Semaphore(4)
 
-        for scene in episode.scenes:
-            # Skip empty scenes
+        async def _extract_one(scene: "DramaScene") -> list[DialogueLine]:  # type: ignore[name-defined]
             if not scene.dialogue and not scene.narration:
-                continue
+                return []
 
             scene_text_parts: list[str] = []
             if language == "zh":
@@ -288,41 +289,35 @@ class VoiceCaster:
                 user_prefix = f"Scene {scene.scene_id}:"
 
             scene_text = "\n".join(scene_text_parts)
+            async with sem:
+                raw = await llm.chat(
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": f"{user_prefix}\n{scene_text}"},
+                    ],
+                )
 
-            raw = await llm.chat(
-                messages=[
-                    {
-                        "role": "system",
-                        "content": locale.dialogue_extraction_prompt or DIALOGUE_EXTRACTION_PROMPT,
-                    },
-                    {"role": "user", "content": f"{user_prefix}\n{scene_text}"},
-                ],
-            )
-
-            data = self._parse_json(raw)
-
-            for line_data in data.get("lines", []):
+            lines: list[DialogueLine] = []
+            for line_data in self._parse_json(raw).get("lines", []):
                 text = line_data.get("text", "").strip()
                 if not text:
                     continue
-
                 speaker = line_data.get("speaker", "narrator")
-                line_type_str = line_data.get("line_type", "dialogue")
-
                 try:
-                    line_type = LineType(line_type_str)
+                    line_type = LineType(line_data.get("line_type", "dialogue"))
                 except ValueError:
                     line_type = LineType.DIALOGUE
+                lines.append(DialogueLine(
+                    text=text,
+                    speaker=speaker,
+                    line_type=line_type,
+                    scene_id=scene.scene_id,
+                    emotion_hint=line_data.get("emotion_hint"),
+                ))
+            return lines
 
-                all_lines.append(
-                    DialogueLine(
-                        text=text,
-                        speaker=speaker,
-                        line_type=line_type,
-                        scene_id=scene.scene_id,
-                        emotion_hint=line_data.get("emotion_hint"),
-                    )
-                )
+        per_scene = await asyncio.gather(*[_extract_one(s) for s in episode.scenes])
+        all_lines = [line for scene_lines in per_scene for line in scene_lines]
 
         logger.info(
             "Extracted %d dialogue lines from episode %d",
