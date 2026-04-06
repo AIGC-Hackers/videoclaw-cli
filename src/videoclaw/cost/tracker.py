@@ -381,7 +381,8 @@ class CostTracker:
 
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        # Compact JSON: no indentation — faster serialize/deserialise and smaller file
+        tmp.write_text(json.dumps(payload, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
         tmp.replace(path)
         logger.debug("Saved cost ledger (%d records) to %s", len(records_data), path)
 
