@@ -358,3 +358,176 @@ class TestAgentTeam:
             task_type = call[0][0]
             from videoclaw.core.planner import TaskType
             assert task_type in (TaskType.SCRIPT_GEN, TaskType.STORYBOARD)
+
+    # ------------------------------------------------------------------
+    # run_collaboration tests
+    # ------------------------------------------------------------------
+
+    async def test_collaboration_loop_approves(self) -> None:
+        """Mock all agents; reviewer approves immediately — 1 round."""
+        registry = AgentRegistry()
+
+        # --- Director mock ---
+        director = MagicMock(spec=DirectorAgent)
+        director.role = AgentRole.DIRECTOR
+        director.tools = ["llm.plan"]
+        director_plan = AgentPlan(
+            agent_role=AgentRole.DIRECTOR,
+            steps=[AgentStep(action="plan", params={"prompt": "test"})],
+        )
+        director_result = AgentResult(
+            agent_role=AgentRole.DIRECTOR,
+            success=True,
+            data={"shot_count": 5, "total_duration": 30.0},
+            cost_usd=0.01,
+        )
+        director.think = AsyncMock(return_value=director_plan)
+        director.act = AsyncMock(return_value=director_result)
+        registry.register(director)
+
+        # --- Cameraman mock ---
+        cameraman = MagicMock(spec=CameramanAgent)
+        cameraman.role = AgentRole.CAMERAMAN
+        cameraman.tools = ["prompt.enhance"]
+        cam_plan = AgentPlan(
+            agent_role=AgentRole.CAMERAMAN,
+            steps=[AgentStep(action="enhance_all", params={})],
+        )
+        cam_result = AgentResult(
+            agent_role=AgentRole.CAMERAMAN,
+            success=True,
+            data={"enhanced_count": 5},
+            cost_usd=0.005,
+        )
+        cameraman.think = AsyncMock(return_value=cam_plan)
+        cameraman.act = AsyncMock(return_value=cam_result)
+        registry.register(cameraman)
+
+        # --- Reviewer mock ---
+        reviewer = MagicMock(spec=ReviewerAgent)
+        reviewer.role = AgentRole.REVIEWER
+        reviewer.tools = ["vision.audit"]
+        reviewer.review = AsyncMock(return_value=ReviewResult(
+            verdict=ReviewVerdict.APPROVED,
+            score=9.0,
+            feedback="All shots passed.",
+        ))
+        registry.register(reviewer)
+
+        team = AgentTeam(registry=registry)
+        result = await team.run_collaboration({"prompt": "test video"})
+
+        assert result["rounds"] == 1
+        assert result["final_verdict"] == ReviewVerdict.APPROVED
+        assert result["cost_usd"] == pytest.approx(0.015)
+        director.think.assert_awaited_once()
+        director.act.assert_awaited_once()
+        cameraman.think.assert_awaited_once()
+        reviewer.review.assert_awaited_once()
+
+    async def test_collaboration_loop_retries(self) -> None:
+        """Reviewer returns RETRY first, then APPROVED — 2 rounds."""
+        registry = AgentRegistry()
+
+        # --- Director mock ---
+        director = MagicMock(spec=DirectorAgent)
+        director.role = AgentRole.DIRECTOR
+        director.tools = ["llm.plan"]
+        director_plan = AgentPlan(
+            agent_role=AgentRole.DIRECTOR,
+            steps=[AgentStep(action="plan", params={"prompt": "test"})],
+        )
+        director_result = AgentResult(
+            agent_role=AgentRole.DIRECTOR,
+            success=True,
+            data={"shot_count": 5, "total_duration": 30.0},
+            cost_usd=0.01,
+        )
+        director.think = AsyncMock(return_value=director_plan)
+        director.act = AsyncMock(return_value=director_result)
+        director.collaborate = AsyncMock(return_value=AgentMessage(
+            from_role=AgentRole.DIRECTOR,
+            to_role=AgentRole.REVIEWER,
+            content="Prompt refined.",
+            data={"refined_prompt": "improved prompt"},
+        ))
+        registry.register(director)
+
+        # --- Reviewer mock: RETRY then APPROVED ---
+        reviewer = MagicMock(spec=ReviewerAgent)
+        reviewer.role = AgentRole.REVIEWER
+        reviewer.tools = ["vision.audit"]
+        reviewer.review = AsyncMock(side_effect=[
+            ReviewResult(
+                verdict=ReviewVerdict.RETRY,
+                score=4.0,
+                feedback="Lighting is wrong",
+                suggestions=["Fix lighting"],
+            ),
+            ReviewResult(
+                verdict=ReviewVerdict.APPROVED,
+                score=8.5,
+                feedback="Looks good now.",
+            ),
+        ])
+        registry.register(reviewer)
+
+        team = AgentTeam(registry=registry)
+        result = await team.run_collaboration({"prompt": "test video"})
+
+        assert result["rounds"] == 2
+        assert result["final_verdict"] == ReviewVerdict.APPROVED
+        assert result["cost_usd"] == pytest.approx(0.02)
+        assert director.think.await_count == 2
+        assert director.collaborate.await_count == 1
+        assert reviewer.review.await_count == 2
+
+    async def test_collaboration_loop_max_rounds(self) -> None:
+        """Reviewer always returns RETRY — loop stops after max_rounds."""
+        registry = AgentRegistry()
+
+        # --- Director mock ---
+        director = MagicMock(spec=DirectorAgent)
+        director.role = AgentRole.DIRECTOR
+        director.tools = ["llm.plan"]
+        director.think = AsyncMock(return_value=AgentPlan(
+            agent_role=AgentRole.DIRECTOR,
+            steps=[AgentStep(action="plan", params={})],
+        ))
+        director.act = AsyncMock(return_value=AgentResult(
+            agent_role=AgentRole.DIRECTOR,
+            success=True,
+            data={"shot_count": 3},
+            cost_usd=0.01,
+        ))
+        director.collaborate = AsyncMock(return_value=AgentMessage(
+            from_role=AgentRole.DIRECTOR,
+            to_role=AgentRole.REVIEWER,
+            content="Refined.",
+            data={},
+        ))
+        registry.register(director)
+
+        # --- Reviewer mock: always RETRY ---
+        reviewer = MagicMock(spec=ReviewerAgent)
+        reviewer.role = AgentRole.REVIEWER
+        reviewer.tools = ["vision.audit"]
+        reviewer.review = AsyncMock(return_value=ReviewResult(
+            verdict=ReviewVerdict.RETRY,
+            score=3.0,
+            feedback="Still not good enough",
+            suggestions=["Try harder"],
+        ))
+        registry.register(reviewer)
+
+        team = AgentTeam(registry=registry)
+        result = await team.run_collaboration(
+            {"prompt": "stubborn test"}, max_rounds=3,
+        )
+
+        assert result["rounds"] == 3
+        assert result["final_verdict"] == ReviewVerdict.RETRY
+        assert result["cost_usd"] == pytest.approx(0.03)
+        assert director.think.await_count == 3
+        assert director.collaborate.await_count == 3
+        assert reviewer.review.await_count == 3
