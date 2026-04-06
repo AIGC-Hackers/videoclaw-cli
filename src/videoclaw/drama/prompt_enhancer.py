@@ -324,6 +324,15 @@ class PromptEnhancer:
         parts: list[str] = []
         char_map = {c.name: c for c in series.characters}
 
+        # Pre-compute ref key lookups — avoid recomputing per character/prop per scene
+        char_refs = (available_refs or {}).get("characters", {})
+        char_ref_keys: frozenset[str] = frozenset(_to_ref_key(k) for k in char_refs)
+        prop_refs = (available_refs or {}).get("props", {})
+        # {match_text: ref_key} — avoids O(N_props) _to_ref_key() calls per scene
+        prop_match_map: dict[str, str] = {
+            _to_ref_key(p).replace("_", " "): _to_ref_key(p) for p in prop_refs
+        }
+
         # --- 0a. Dramatic tension modifiers (hook / cliffhanger) ---
         shot_role = getattr(scene, "shot_role", "normal")
         if shot_role == "hook" or self._scene_index == 0:
@@ -343,7 +352,6 @@ class PromptEnhancer:
                 parts.append(_CONTINUITY_PREFIX)
 
         # --- 0c. Western drama: realism header + CHARACTER IDENTITY (two-layer strategy) ---
-        char_refs = (available_refs or {}).get("characters", {})
         if series.language == "en" and scene.characters_present:
             char_ids = []
             for name in scene.characters_present:
@@ -352,7 +360,7 @@ class PromptEnhancer:
                     vp_compact = char.visual_prompt[:150].rstrip(",. ")
                     entry = f"{name}: {vp_compact}"
                     ref_key = _to_ref_key(name)
-                    if char_refs and ref_key in {_to_ref_key(k) for k in char_refs}:
+                    if char_ref_keys and ref_key in char_ref_keys:
                         entry += f" [ref:{ref_key}]"
                     char_ids.append(entry)
             if char_ids:
@@ -385,13 +393,12 @@ class PromptEnhancer:
                 if char and char.visual_prompt:
                     entry = f"Same character {name} — {char.visual_prompt.rstrip('.')}."
                     ref_key = _to_ref_key(name)
-                    if char_refs and ref_key in {_to_ref_key(k) for k in char_refs}:
+                    if char_ref_keys and ref_key in char_ref_keys:
                         entry += f" [ref:{ref_key}]"
                     parts.append(entry)
 
         # --- 3. Scene (original visual prompt — setting + action + mood) ---
         scene_refs = (available_refs or {}).get("scenes", {})
-        prop_refs = (available_refs or {}).get("props", {})
         if scene.visual_prompt:
             scene_text = scene.visual_prompt.rstrip(".") + "."
             # --- Scene ref marker ---
@@ -400,18 +407,14 @@ class PromptEnhancer:
                 desc_lower = scene.description.lower()
                 for scene_name in scene_refs:
                     skey = _to_ref_key(scene_name)
-                    # Match if the scene key (with underscores as spaces) appears
-                    # in the visual_prompt or description
                     match_text = skey.replace("_", " ")
                     if match_text in vp_lower or match_text in desc_lower:
                         scene_text += f" [ref:{skey}]"
                         break  # Only ONE scene ref per shot
-            # --- Prop ref markers ---
-            if prop_refs:
+            # --- Prop ref markers (use pre-computed match_map to avoid per-scene key recomputation) ---
+            if prop_match_map:
                 vp_lower = scene.visual_prompt.lower()
-                for prop_name in prop_refs:
-                    pkey = _to_ref_key(prop_name)
-                    match_text = pkey.replace("_", " ")
+                for match_text, pkey in prop_match_map.items():
                     if match_text in vp_lower:
                         scene_text += f" [ref:{pkey}]"
             parts.append(scene_text)
