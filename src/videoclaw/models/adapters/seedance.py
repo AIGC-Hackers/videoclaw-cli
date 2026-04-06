@@ -230,7 +230,7 @@ def _ffprobe_dimensions(path: str) -> tuple[int, int] | None:
         )
         w, h = (int(x) for x in probe.stdout.strip().split("x"))
         return w, h
-    except Exception:
+    except (subprocess.SubprocessError, OSError, ValueError):
         return None
 
 
@@ -248,7 +248,7 @@ def _ffprobe_duration(path: str) -> float | None:
             capture_output=True, text=True, timeout=10,
         )
         return float(probe.stdout.strip())
-    except Exception:
+    except (subprocess.SubprocessError, OSError, ValueError):
         return None
 
 
@@ -273,7 +273,7 @@ def _ffmpeg_resize_image(src: str, dst: str, max_px: int) -> bool:
             capture_output=True, timeout=30,
         )
         return Path(dst).exists() and Path(dst).stat().st_size > 0
-    except Exception:
+    except (subprocess.SubprocessError, OSError):
         return False
 
 

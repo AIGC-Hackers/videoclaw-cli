@@ -121,7 +121,7 @@ class DAGExecutor:
             )
             try:
                 self.cost_tracker.save_ledger(cost_path)
-            except Exception:
+            except (OSError, ValueError):
                 logger.exception("Failed to save cost ledger for %s", self.state.project_id)
 
         await self._checkpoint(force=True)
@@ -222,7 +222,7 @@ class DAGExecutor:
         self._nodes_since_checkpoint = 0
         try:
             await self.state_manager.save_async(self.state)
-        except Exception:
+        except OSError:
             logger.exception("Failed to checkpoint state for %s", self.state.project_id)
 
     # ------------------------------------------------------------------
@@ -869,7 +869,7 @@ class DAGExecutor:
                         Path(seg.audio_path), processed_path, seg.line_type,
                     )
                     seg.audio_path = str(processed_path)
-        except Exception as exc:
+        except (RuntimeError, OSError) as exc:
             logger.warning(
                 "[per_scene_tts] Audio post-processing failed for scene %s: %s",
                 scene_id, exc,
@@ -960,7 +960,7 @@ class DAGExecutor:
                 title=title,
                 language=language,
             )
-        except Exception:
+        except (ValueError, RuntimeError):
             logger.warning("[subtitle_gen] ASS generation failed, falling back to SRT")
             subtitle_path = project_dir / "subtitles.srt"
             sub_gen.generate_srt(
@@ -1191,7 +1191,7 @@ class DAGExecutor:
                     "[compose] Re-generated subtitles with actual durations -> %s",
                     subtitle_path,
                 )
-            except Exception as exc:
+            except (ValueError, RuntimeError, OSError) as exc:
                 logger.warning(
                     "[compose] Failed to re-generate subtitles: %s — "
                     "using original timing", exc,
@@ -1326,7 +1326,7 @@ class DAGExecutor:
                 crf=crf,
                 metadata=render_metadata if render_metadata else None,
             )
-        except Exception as exc:
+        except RuntimeError as exc:
             logger.warning(
                 "[render] FFmpeg render failed (%s), falling back to file copy", exc,
             )

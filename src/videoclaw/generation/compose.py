@@ -27,7 +27,7 @@ def _get_duration_tolerance() -> float:
     try:
         from videoclaw.config import get_config
         return get_config().duration_tolerance_seconds
-    except Exception:
+    except (AttributeError, ValueError):
         return 1.0
 
 
@@ -131,7 +131,7 @@ async def align_clips(
                 integrity_error = "no video stream"
             elif actual <= 0:
                 integrity_error = f"invalid duration ({actual}s)"
-        except Exception as exc:
+        except (RuntimeError, OSError, ValueError) as exc:
             actual = 0.0
             has_video = False
             integrity_error = str(exc)
