@@ -904,6 +904,10 @@ class DramaManager:
         data = json.loads(path.read_text(encoding="utf-8"))
         return DramaSeries.from_dict(data)
 
+    async def load_async(self, series_id: str) -> DramaSeries:
+        """Async variant of :meth:`load` — offloads disk read to a thread."""
+        return await asyncio.to_thread(self.load, series_id)
+
     def list_series(self) -> list[str]:
         if not self.base_dir.exists():
             return []

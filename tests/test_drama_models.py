@@ -116,6 +116,30 @@ def test_drama_manager_load_nonexistent(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# DramaManager async variants
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_drama_manager_load_async_roundtrip(tmp_path):
+    """load_async() must return the same series as load()."""
+    mgr = DramaManager(base_dir=tmp_path)
+    series = mgr.create(title="Async Test", synopsis="async", genre="drama", total_episodes=1)
+
+    loaded = await mgr.load_async(series.series_id)
+    assert loaded.series_id == series.series_id
+    assert loaded.title == "Async Test"
+
+
+@pytest.mark.asyncio
+async def test_drama_manager_load_async_raises_on_missing(tmp_path):
+    """load_async() must raise FileNotFoundError for unknown series IDs."""
+    mgr = DramaManager(base_dir=tmp_path)
+    with pytest.raises(FileNotFoundError):
+        await mgr.load_async("nonexistent-series-id")
+
+
+# ---------------------------------------------------------------------------
 # Episode & DramaScene
 # ---------------------------------------------------------------------------
 
