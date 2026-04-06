@@ -117,7 +117,7 @@ async def _run_pipeline(
 
         # Step 1: Director plans the project
         ps = await director.plan(ps)
-        _state_mgr.save(ps)
+        await _state_mgr.save_async(ps)
         await event_bus.emit("project.planned", {"project_id": ps.project_id})
 
         # Step 2: Build DAG and execute
@@ -128,11 +128,11 @@ async def _run_pipeline(
             bus=event_bus,
         )
         ps = await executor.run()
-        _state_mgr.save(ps)
+        await _state_mgr.save_async(ps)
         await event_bus.emit("project.completed", {"project_id": ps.project_id})
 
     except Exception:
         logger.exception("Pipeline failed for project %s", ps.project_id)
         ps.status = "failed"
-        _state_mgr.save(ps)
+        await _state_mgr.save_async(ps)
         await event_bus.emit("project.failed", {"project_id": ps.project_id})

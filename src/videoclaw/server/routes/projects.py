@@ -78,7 +78,7 @@ async def get_project_cost(project_id: str) -> dict:
 
     from videoclaw.cost.tracker import CostTracker
 
-    tracker = CostTracker.load_ledger(cost_path)
+    tracker = await asyncio.to_thread(CostTracker.load_ledger, cost_path)
     summary = tracker.get_summary()
     hints = tracker.get_optimization_hints()
     return {
@@ -138,5 +138,6 @@ async def delete_project(project_id: str) -> dict:
     project_dir = _state_mgr.projects_dir / project_id
     if not project_dir.exists():
         raise HTTPException(status_code=404, detail="Project not found")
-    shutil.rmtree(project_dir)
+    # rmtree on a project with video assets can take 1-10s — offload to thread
+    await asyncio.to_thread(shutil.rmtree, project_dir)
     return {"deleted": project_id}
