@@ -947,10 +947,11 @@ class DAGExecutor:
 
         sub_gen = SubtitleGenerator()
 
-        # Generate ASS (primary) with SRT fallback
+        # Generate ASS (primary) with SRT fallback — offloaded to thread (CPU + file write)
         try:
             subtitle_path = project_dir / "subtitles.ass"
-            sub_gen.generate_ass(
+            await asyncio.to_thread(
+                sub_gen.generate_ass,
                 scenes,
                 subtitle_path,
                 audio_manifest=audio_manifest,
@@ -961,7 +962,8 @@ class DAGExecutor:
         except (ValueError, RuntimeError):
             logger.warning("[subtitle_gen] ASS generation failed, falling back to SRT")
             subtitle_path = project_dir / "subtitles.srt"
-            sub_gen.generate_srt(
+            await asyncio.to_thread(
+                sub_gen.generate_srt,
                 scenes,
                 subtitle_path,
                 audio_manifest=audio_manifest,
@@ -1172,12 +1174,12 @@ class DAGExecutor:
 
                 language = state.metadata.get("language", "zh")
                 if str(subtitle_path).endswith(".ass"):
-                    sub_gen.generate_ass(
-                        corrected_scenes, subtitle_path, language=language,
+                    await asyncio.to_thread(
+                        sub_gen.generate_ass, corrected_scenes, subtitle_path, language=language,
                     )
                 else:
-                    sub_gen.generate_srt(
-                        corrected_scenes, subtitle_path, language=language,
+                    await asyncio.to_thread(
+                        sub_gen.generate_srt, corrected_scenes, subtitle_path, language=language,
                     )
                 logger.info(
                     "[compose] Re-generated subtitles with actual durations -> %s",
