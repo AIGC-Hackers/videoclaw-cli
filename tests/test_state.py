@@ -1,6 +1,9 @@
 """Tests for project state management."""
 
+import json
 from pathlib import Path
+
+import pytest
 
 from videoclaw.core.state import ProjectState, Shot, ShotStatus, StateManager
 
@@ -35,3 +38,47 @@ def test_state_manager_crud(tmp_path: Path):
     assert updated.storyboard[0].status == ShotStatus.COMPLETED
 
     assert ps.project_id in mgr.list_projects()
+
+
+# ---------------------------------------------------------------------------
+# Compact JSON serialization (P1#6)
+# ---------------------------------------------------------------------------
+
+
+def test_save_produces_compact_json(tmp_path: Path):
+    """StateManager.save() must write compact JSON (no indentation)."""
+    mgr = StateManager(projects_dir=tmp_path)
+    ps = mgr.create_project("compact test")
+    path = mgr.save(ps)
+    raw = path.read_text(encoding="utf-8")
+    # Compact JSON has no trailing newline or spaces after colons/commas
+    assert "\n" not in raw
+    # Can round-trip fine
+    data = json.loads(raw)
+    assert data["prompt"] == "compact test"
+
+
+# ---------------------------------------------------------------------------
+# Async save (P0#2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_save_async_roundtrip(tmp_path: Path):
+    """save_async() must produce the same on-disk result as save()."""
+    mgr = StateManager(projects_dir=tmp_path)
+    ps = mgr.create_project("async test")
+    path = await mgr.save_async(ps)
+    assert path.exists()
+    loaded = mgr.load(ps.project_id)
+    assert loaded.prompt == "async test"
+
+
+@pytest.mark.asyncio
+async def test_save_async_compact_json(tmp_path: Path):
+    """save_async() must write compact (non-indented) JSON."""
+    mgr = StateManager(projects_dir=tmp_path)
+    ps = mgr.create_project("async compact")
+    path = await mgr.save_async(ps)
+    raw = path.read_text(encoding="utf-8")
+    assert "\n" not in raw

@@ -9,7 +9,7 @@ from videoclaw.drama.models import (
     Episode,
     VoiceProfile,
 )
-from videoclaw.drama.runner import build_episode_dag, build_scene_regen_dag
+from videoclaw.drama.runner import _check_url_alive, build_episode_dag, build_scene_regen_dag
 
 # ---------------------------------------------------------------------------
 # DAG structure
@@ -567,3 +567,67 @@ class TestAlignmentRegenLoop:
         result = await runner._alignment_regen_loop(series, ep, state)
         # Should return immediately without regen
         assert result is state
+
+
+# ---------------------------------------------------------------------------
+# Parallel URL freshness check (P0#1)
+# ---------------------------------------------------------------------------
+
+
+class TestCheckUrlAlive:
+    @pytest.mark.asyncio
+    async def test_returns_true_for_2xx(self):
+        """_check_url_alive returns True when HEAD responds with 2xx."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+
+        mock_client = AsyncMock()
+        mock_client.head = AsyncMock(return_value=mock_resp)
+
+        result = await _check_url_alive("https://example.com/img.png", client=mock_client)
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_returns_false_for_4xx(self):
+        """_check_url_alive returns False when HEAD responds with 4xx."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 404
+
+        mock_client = AsyncMock()
+        mock_client.head = AsyncMock(return_value=mock_resp)
+
+        result = await _check_url_alive("https://example.com/gone.png", client=mock_client)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_returns_false_on_http_error(self):
+        """_check_url_alive returns False on network errors."""
+        import httpx
+        from unittest.mock import AsyncMock
+
+        mock_client = AsyncMock()
+        mock_client.head = AsyncMock(side_effect=httpx.ConnectError("no route"))
+
+        result = await _check_url_alive("https://unreachable.example.com/", client=mock_client)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_uses_shared_client_when_provided(self):
+        """_check_url_alive reuses the provided client rather than creating a new one."""
+        import httpx
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+
+        mock_client = AsyncMock()
+        mock_client.head = AsyncMock(return_value=mock_resp)
+
+        # Patch AsyncClient constructor — it must NOT be called when client is provided
+        with patch("httpx.AsyncClient") as mock_cls:
+            await _check_url_alive("https://example.com/ok.jpg", client=mock_client)
+            mock_cls.assert_not_called()
