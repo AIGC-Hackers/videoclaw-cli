@@ -11,8 +11,11 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import os
 from pathlib import Path
 from typing import ClassVar, NamedTuple, Protocol, runtime_checkable
+
+import httpx
 
 from videoclaw.drama.models import (
     AudioSegment,
@@ -393,8 +396,6 @@ class WaveSpeedTTSProvider:
         timeout: float = 120.0,
         poll_interval: float = 2.0,
     ) -> None:
-        import os
-
         from videoclaw.config import get_config
 
         self._api_key = (
@@ -440,8 +441,6 @@ class WaveSpeedTTSProvider:
         volume:
             Volume 0.10-10.00, default 1.0.
         """
-        import httpx
-
         if not voice or voice == "default":
             voice = self.DEFAULT_VOICES.get(language, "Friendly_Person")
 

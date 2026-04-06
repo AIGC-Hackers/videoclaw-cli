@@ -374,9 +374,8 @@ class VideoComposer:
                     f"video_paths length ({len(video_paths)})"
                 )
             if clip_durations is None:
-                import asyncio as _asyncio
                 clip_durations = list(
-                    await _asyncio.gather(*[get_video_duration(vp) for vp in video_paths])
+                    await asyncio.gather(*[get_video_duration(vp) for vp in video_paths])
                 )
 
             # Skip zero/negative-duration clips — they break xfade offsets.

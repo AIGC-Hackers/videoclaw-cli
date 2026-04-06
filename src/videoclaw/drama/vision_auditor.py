@@ -675,7 +675,7 @@ class VisionAuditor:
         llm = self._ensure_llm()
         try:
             raw = await llm.chat(messages, model=VISION_MODEL, temperature=0.1, max_tokens=1024)
-        except Exception as exc:
+        except (OSError, RuntimeError, asyncio.TimeoutError, ValueError) as exc:
             logger.error("Vision API error for %s: %s", scene.scene_id, exc)
             return fatals, tolerables
 
@@ -1068,7 +1068,7 @@ class VisionAuditor:
         llm = self._ensure_llm()
         try:
             raw = await llm.chat(messages, model=VISION_MODEL, temperature=0.1, max_tokens=1024)
-        except Exception as exc:
+        except (OSError, RuntimeError, asyncio.TimeoutError, ValueError) as exc:
             logger.error("Vision API error for composition audit: %s", exc)
             return fatals, tolerables
 
