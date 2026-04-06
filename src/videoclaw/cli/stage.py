@@ -177,7 +177,7 @@ async def _video_async(
     if result.video_data:
         out_path = Path(output_path) if output_path else Path(f"output_{shot.shot_id}.mp4")
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_bytes(result.video_data)
+        await asyncio.to_thread(out_path.write_bytes, result.video_data)
         console.print(f"[bold green]Video saved:[/bold green] {out_path}")
         console.print(f"  Cost: ${result.cost_usd:.4f}  |  Model: {result.model_id}")
         out.set_result({
@@ -285,7 +285,7 @@ async def _image_async(
 
     if output_path and image_path:
         import shutil
-        shutil.move(str(image_path), output_path)
+        await asyncio.to_thread(shutil.move, str(image_path), output_path)
         image_path = Path(output_path)
 
     if image_path and image_path.exists():
