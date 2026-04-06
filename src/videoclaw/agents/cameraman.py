@@ -7,6 +7,7 @@ scene, style, constraints, text directives).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -143,7 +144,7 @@ class CameramanAgent(BaseAgent):
                 else:
                     errors.append(f"Unknown action: {step.action}")
 
-            except Exception as exc:
+            except (OSError, RuntimeError, asyncio.TimeoutError, ValueError) as exc:
                 logger.exception("Enhancement failed for step %s", step.action)
                 errors.append(f"{step.action}: {exc}")
 

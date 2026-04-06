@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -115,7 +116,7 @@ class DirectorAgent(BaseAgent):
                 error="No recognised action steps in plan",
             )
 
-        except Exception as exc:
+        except (OSError, RuntimeError, asyncio.TimeoutError, ValueError) as exc:
             logger.exception("DirectorAgent.act failed")
             return AgentResult(
                 agent_role=AgentRole.DIRECTOR,

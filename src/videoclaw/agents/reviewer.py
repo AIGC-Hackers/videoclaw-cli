@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any
@@ -169,7 +170,7 @@ class ReviewerAgent(BaseAgent):
                 data=combined_data,
             )
 
-        except Exception as exc:
+        except (OSError, RuntimeError, asyncio.TimeoutError, ValueError) as exc:
             logger.exception("ReviewerAgent.act failed")
             return AgentResult(
                 agent_role=AgentRole.REVIEWER,

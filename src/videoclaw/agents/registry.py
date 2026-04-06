@@ -97,7 +97,7 @@ class AgentRegistry:
                     "Discovered agent %r from entry point %r",
                     type(agent).__name__, ep.name,
                 )
-            except Exception:
+            except (ImportError, AttributeError, TypeError):
                 logger.exception(
                     "Failed to load agent from entry point %r", ep.name,
                 )
@@ -115,7 +115,7 @@ class AgentRegistry:
                 _ = agent.role
                 _ = agent.tools
                 return agent.role.value, True
-            except Exception:
+            except AttributeError:
                 logger.warning(
                     "Health check failed for agent %r",
                     type(agent).__name__,
