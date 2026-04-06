@@ -4,80 +4,90 @@ from __future__ import annotations
 
 import functools
 from pathlib import Path
-
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
-
-class VideoClawConfig(BaseSettings):
-    """VideoClaw application configuration.
-
-    Values are read from environment variables prefixed with ``VIDEOCLAW_``,
-    falling back to a ``.env`` file in the current working directory.
-    """
-
-    model_config = SettingsConfigDict(
-        env_prefix="VIDEOCLAW_",
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
-
-    # --- Directories ---
-    projects_dir: Path = Field(default=Path("./projects"))
-    models_dir: Path = Field(default=Path("./models_cache"))
-
-    # --- Model defaults ---
-    default_llm: str = "gpt-4o"
-    default_video_model: str = "seedance-2.0"
-
-    # --- Language ---
-    default_language: str = "zh"
-
-    # --- Logging ---
-    log_level: str = "info"
-
-    # --- API keys (read without the VIDEOCLAW_ prefix too) ---
-    openai_api_key: str | None = Field(default=None)
-    anthropic_api_key: str | None = Field(default=None)
-    moonshot_api_key: str | None = Field(default=None)  # Kimi (月之暗面)
-    evolink_api_key: str | None = Field(default=None)  # Evolink (Kimi K2)
-    kling_access_key: str | None = Field(default=None)  # Kling (可灵) Access Key
-    kling_secret_key: str | None = Field(default=None)  # Kling (可灵) Secret Key
-    minimax_api_key: str | None = Field(default=None)  # MiniMax (海螺AI) API Key
-    zhipu_api_key: str | None = Field(default=None)  # ZhipuAI (智谱清影) API Key
-    wavespeed_api_key: str | None = Field(default=None)  # WaveSpeed (MiniMax speech-02-hd)
-    ark_api_key: str | None = Field(default=None)  # Volcengine Ark (火山方舟) — Seedance
-    seedance_base_url: str = Field(default="https://sd2.vectorspace.cn")  # Seedance API proxy
-    byteplus_api_key: str | None = Field(default=None)  # BytePlus ModelArk API Key
-    byteplus_api_base: str = Field(
-        default="https://ark.ap-southeast.bytepluses.com/api/v3"
-    )
-    google_api_key: str | None = Field(default=None)  # Google Gemini (Nano Banana 2)
-
-    # --- LLM API Base URLs ---
-    moonshot_api_base: str = Field(default="https://api.moonshot.cn/v1")
-    evolink_api_base: str = Field(default="https://api.evolink.ai/v1")
-
-    # --- Budget & resilience ---
-    budget_default_usd: float = 10.0
-    max_retries: int = 3
-
-    # --- Quality gates ---
-    quality_gate_strict: bool = False
-    duration_tolerance_seconds: float = 1.0
-
-    def ensure_dirs(self) -> None:
-        """Create project and model cache directories if they don't exist."""
-        self.projects_dir.mkdir(parents=True, exist_ok=True)
-        self.models_dir.mkdir(parents=True, exist_ok=True)
+from typing import Any
 
 
 @functools.lru_cache(maxsize=1)
-def get_config() -> VideoClawConfig:
+def get_config() -> Any:
     """Return the singleton :class:`VideoClawConfig` instance.
+
+    pydantic / pydantic_settings are imported on **first call only** (~340ms).
+    Any code path that never calls get_config() pays zero loading cost.
 
     The config is created on first call and cached for the process lifetime.
     To reload, clear the cache via ``get_config.cache_clear()``.
     """
+    from pydantic import Field
+    from pydantic_settings import BaseSettings, SettingsConfigDict
+
+    class VideoClawConfig(BaseSettings):
+        """VideoClaw application configuration.
+
+        Values are read from environment variables prefixed with ``VIDEOCLAW_``,
+        falling back to a ``.env`` file in the current working directory.
+        """
+
+        model_config = SettingsConfigDict(
+            env_prefix="VIDEOCLAW_",
+            env_file=".env",
+            env_file_encoding="utf-8",
+            extra="ignore",
+        )
+
+        # --- Directories ---
+        projects_dir: Path = Field(default=Path("./projects"))
+        models_dir: Path = Field(default=Path("./models_cache"))
+
+        # --- Model defaults ---
+        default_llm: str = "gpt-4o"
+        default_video_model: str = "seedance-2.0"
+
+        # --- Language ---
+        default_language: str = "zh"
+
+        # --- Logging ---
+        log_level: str = "info"
+
+        # --- API keys (read without the VIDEOCLAW_ prefix too) ---
+        openai_api_key: str | None = Field(default=None)
+        anthropic_api_key: str | None = Field(default=None)
+        moonshot_api_key: str | None = Field(default=None)  # Kimi (月之暗面)
+        evolink_api_key: str | None = Field(default=None)  # Evolink (Kimi K2)
+        kling_access_key: str | None = Field(default=None)  # Kling (可灵) Access Key
+        kling_secret_key: str | None = Field(default=None)  # Kling (可灵) Secret Key
+        minimax_api_key: str | None = Field(default=None)  # MiniMax (海螺AI) API Key
+        zhipu_api_key: str | None = Field(default=None)  # ZhipuAI (智谱清言) API Key
+        wavespeed_api_key: str | None = Field(default=None)  # WaveSpeed (MiniMax speech-02-hd)
+        ark_api_key: str | None = Field(default=None)  # Volcengine Ark (火山方舟) — Seedance
+        seedance_base_url: str = Field(default="https://sd2.vectorspace.cn")  # Seedance API proxy
+        byteplus_api_key: str | None = Field(default=None)  # BytePlus ModelArk API Key
+        byteplus_api_base: str = Field(
+            default="https://ark.ap-southeast.bytepluses.com/api/v3"
+        )
+        google_api_key: str | None = Field(default=None)  # Google Gemini (Nano Banana 2)
+
+        # --- LLM API Base URLs ---
+        moonshot_api_base: str = Field(default="https://api.moonshot.cn/v1")
+        evolink_api_base: str = Field(default="https://api.evolink.ai/v1")
+
+        # --- Budget & resilience ---
+        budget_default_usd: float = 10.0
+        max_retries: int = 3
+
+        # --- Quality gates ---
+        quality_gate_strict: bool = False
+        duration_tolerance_seconds: float = 1.0
+
+        def ensure_dirs(self) -> None:
+            """Create project and model cache directories if they don't exist."""
+            self.projects_dir.mkdir(parents=True, exist_ok=True)
+            self.models_dir.mkdir(parents=True, exist_ok=True)
+
     return VideoClawConfig()
+
+
+def __getattr__(name: str) -> Any:
+    """Lazy module attribute — VideoClawConfig is available without an eager pydantic import."""
+    if name == "VideoClawConfig":
+        return type(get_config())
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
