@@ -613,7 +613,7 @@ class VisionAuditor:
         fatals: list[str] = []
         tolerables: list[str] = []
         try:
-            frames = extract_frames_as_arrays(clip_path, n=10)
+            frames = await asyncio.to_thread(extract_frames_as_arrays, clip_path, 10)
             breaks = detect_temporal_breaks(
                 frames,
                 fatal_threshold=_FATAL_THRESHOLD,
@@ -642,7 +642,7 @@ class VisionAuditor:
         fatals: list[str] = []
         tolerables: list[str] = []
 
-        frames = self.extract_keyframes(clip_path)
+        frames = await asyncio.to_thread(self.extract_keyframes, clip_path)
         if not frames:
             logger.warning("Layer 2: no frames extracted for %s", clip_path.name)
             return fatals, tolerables
@@ -964,8 +964,8 @@ class VisionAuditor:
             video_path.name, duration, n_frames,
         )
 
-        # Extract frames
-        frames = extract_frames_as_arrays(video_path, n=n_frames)
+        # Extract frames — ffprobe + ffmpeg × n_frames, all blocking subprocess calls
+        frames = await asyncio.to_thread(extract_frames_as_arrays, video_path, n_frames)
 
         # Layer 0: Duration alignment check (from pre-compose alignment report)
         all_fatals: list[str] = []
@@ -1042,18 +1042,23 @@ class VisionAuditor:
         tolerables: list[str] = []
 
         # Encode frames to base64 for the vision model
+        # PIL JPEG encode + base64 is CPU-bound; offload to avoid blocking event loop
         from PIL import Image
 
-        content: list[dict[str, Any]] = []
-        for frame in frames:
-            img = Image.fromarray(frame)
-            buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=85)
-            b64 = base64.b64encode(buf.getvalue()).decode()
-            content.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
-            })
+        def _encode_frames() -> list[dict[str, Any]]:
+            result: list[dict[str, Any]] = []
+            for frame in frames:
+                img = Image.fromarray(frame)
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=85)
+                b64 = base64.b64encode(buf.getvalue()).decode()
+                result.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
+                })
+            return result
+
+        content: list[dict[str, Any]] = await asyncio.to_thread(_encode_frames)
 
         content.append({"type": "text", "text": _COMPOSITION_AUDIT_PROMPT.format(
             frame_count=len(frames),
