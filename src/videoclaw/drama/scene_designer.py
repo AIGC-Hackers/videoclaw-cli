@@ -253,7 +253,8 @@ class SceneDesigner:
                     logger.info("Using BytePlus Seedream for scene/prop images")
                 else:
                     raise ValueError("No BytePlus API key")
-            except Exception:
+            except (ImportError, ValueError, OSError, RuntimeError) as exc:
+                logger.warning("BytePlus unavailable for scene/prop images (%s), falling back to Evolink", exc)
                 from videoclaw.generation.evolink_image import EvolinkImageGenerator
                 self._img_gen = EvolinkImageGenerator()
                 logger.info("Using Evolink for scene/prop images (BytePlus unavailable)")

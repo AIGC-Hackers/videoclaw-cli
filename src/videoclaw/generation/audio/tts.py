@@ -485,12 +485,15 @@ class WaveSpeedTTSProvider:
                     return audio_resp.content
                 raise RuntimeError(f"Unexpected WaveSpeed response: {result}")
 
-            # Poll for completion
+            # Poll for completion — exponential backoff: 1s→1.5s→2.25s→…→10s cap
             result_url = self.RESULT_URL.format(request_id=request_id)
             elapsed = 0.0
+            attempt = 0
             while elapsed < self._timeout:
-                await asyncio.sleep(self._poll_interval)
-                elapsed += self._poll_interval
+                interval = min(self._poll_interval * (1.5 ** attempt), 10.0)
+                await asyncio.sleep(interval)
+                elapsed += interval
+                attempt += 1
 
                 poll_resp = await client.get(result_url, headers=headers)
                 poll_resp.raise_for_status()
@@ -498,7 +501,6 @@ class WaveSpeedTTSProvider:
 
                 status = poll_data.get("status", "")
                 if status in ("completed", "succeeded"):
-                    # Download the audio
                     output = poll_data.get("output") or poll_data.get("result")
                     if isinstance(output, dict):
                         audio_url = output.get("audio") or output.get("url")

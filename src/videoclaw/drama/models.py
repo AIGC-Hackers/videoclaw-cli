@@ -131,7 +131,7 @@ class Character:
         return c
 
 
-@dataclass
+@dataclass(slots=True)
 class DramaScene:
     """A single scene within an episode."""
 
@@ -194,7 +194,7 @@ class DramaScene:
         return cls(**data)
 
 
-@dataclass
+@dataclass(slots=True)
 class VoiceProfile:
     """TTS voice configuration mapped from character personality."""
 
@@ -226,7 +226,7 @@ class VoiceProfile:
         return cls(**filtered)
 
 
-@dataclass
+@dataclass(slots=True)
 class DialogueLine:
     """A single line of dialogue, narration, or inner monologue."""
 
@@ -255,7 +255,7 @@ class DialogueLine:
         return cls(**filtered)
 
 
-@dataclass
+@dataclass(slots=True)
 class AudioSegment:
     """A single audio segment within an episode timeline."""
 
