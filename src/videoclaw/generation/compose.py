@@ -13,6 +13,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from videoclaw.utils.ffmpeg import check_ffmpeg, get_video_duration, get_video_info, run_ffmpeg
+from videoclaw.utils.retry import async_retry
 
 logger = logging.getLogger(__name__)
 
@@ -805,23 +806,13 @@ class VideoComposer:
         """Run an FFmpeg command, raising on failure.
 
         Retries once on transient RuntimeError (e.g. resource busy, temp lock)
-        with a short backoff before giving up.
+        via :func:`~videoclaw.utils.retry.async_retry`.
         """
-        import asyncio as _asyncio
-
         logger.debug("FFmpeg command: %s", " ".join(cmd))
         args = cmd[1:]  # run_ffmpeg prepends 'ffmpeg'
-        last_err: Exception | None = None
-        for attempt in range(1, max_attempts + 1):
-            try:
-                await run_ffmpeg(args)
-                return
-            except RuntimeError as exc:
-                last_err = exc
-                if attempt < max_attempts:
-                    logger.warning(
-                        "[compose] FFmpeg attempt %d/%d failed, retrying: %s",
-                        attempt, max_attempts, exc,
-                    )
-                    await _asyncio.sleep(1.0 * attempt)
-        raise last_err  # type: ignore[misc]
+        await async_retry(
+            lambda: run_ffmpeg(args),
+            max_attempts,
+            catch=RuntimeError,
+            label="compose/ffmpeg",
+        )
