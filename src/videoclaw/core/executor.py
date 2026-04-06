@@ -491,7 +491,8 @@ class DAGExecutor:
         shot_id = node.params.get("shot_id", "unknown")
         logger.info("[video_gen] Generating video for shot %s", shot_id)
 
-        shot = next((s for s in state.storyboard if s.shot_id == shot_id), None)
+        storyboard_map = {s.shot_id: s for s in state.storyboard}
+        shot = storyboard_map.get(shot_id)
         if not shot:
             raise ValueError(f"Shot {shot_id} not found in storyboard")
 
@@ -1168,15 +1169,14 @@ class DAGExecutor:
                 from videoclaw.generation.subtitle import SubtitleGenerator
 
                 sub_gen = SubtitleGenerator()
+                clip_map = {c.scene_id: c for c in alignment.clips}
                 corrected_scenes = []
                 for sc in matched_scenes:
                     corrected = dict(sc)
                     sid = corrected.get("scene_id", "")
-                    # Replace scripted duration with actual
-                    for clip in alignment.clips:
-                        if clip.scene_id == sid:
-                            corrected["duration_seconds"] = clip.actual_duration
-                            break
+                    clip = clip_map.get(sid)
+                    if clip:
+                        corrected["duration_seconds"] = clip.actual_duration
                     corrected_scenes.append(corrected)
 
                 language = state.metadata.get("language", "zh")

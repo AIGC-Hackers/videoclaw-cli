@@ -551,19 +551,14 @@ def build_scene_regen_dag(
         ValueError: if *scene_id* is not found in the episode's scenes.
     """
     # Find the target scene
-    scene_idx: int | None = None
-    target_scene: DramaScene | None = None
-    for idx, scene in enumerate(episode.scenes):
-        if scene.scene_id == scene_id:
-            scene_idx = idx
-            target_scene = scene
-            break
-
-    if target_scene is None or scene_idx is None:
+    scene_index_map = {s.scene_id: (idx, s) for idx, s in enumerate(episode.scenes)}
+    entry = scene_index_map.get(scene_id)
+    if entry is None:
         raise ValueError(
             f"Scene {scene_id!r} not found in episode {episode.number} "
             f"(available: {[s.scene_id for s in episode.scenes]})"
         )
+    scene_idx, target_scene = entry
 
     # Build character reference image lookup (single + multi-angle + HTTPS URLs)
     char_ref_map: dict[str, str] = {
