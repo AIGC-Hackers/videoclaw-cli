@@ -25,6 +25,7 @@ class ModelRegistry:
 
     def __init__(self) -> None:
         self._adapters: dict[str, VideoModelAdapter] = {}
+        self._discovered: bool = False
 
     # ------------------------------------------------------------------
     # Registration
@@ -80,7 +81,14 @@ class ModelRegistry:
 
         Each entry point must resolve to a callable that returns a
         :class:`VideoModelAdapter` instance (a factory or class).
+
+        Idempotent — entry points are scanned only once per registry instance.
+        Subsequent calls are no-ops (O(1)) because :func:`get_registry` returns
+        the same singleton and adapters already registered are skipped.
         """
+        if self._discovered:
+            return
+        self._discovered = True
         eps = entry_points()
         # Python 3.12+: entry_points() returns SelectableGroups; use .select()
         adapter_eps = eps.select(group="videoclaw.adapters")
@@ -142,11 +150,12 @@ class ModelRegistry:
 
 
 @functools.lru_cache(maxsize=1)
+@functools.lru_cache(maxsize=1)
 def get_registry() -> ModelRegistry:
     """Return the global :class:`ModelRegistry` singleton.
 
-    On first call the registry is created empty.  Call
-    :meth:`ModelRegistry.discover` to load entry-point adapters, or
-    :meth:`ModelRegistry.register` to add adapters manually.
+    The same instance is returned on every call (lru_cache ensures singleton
+    semantics).  Call :meth:`ModelRegistry.discover` once to load entry-point
+    adapters, or :meth:`ModelRegistry.register` to add adapters manually.
     """
     return ModelRegistry()
