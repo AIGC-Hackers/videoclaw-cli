@@ -7,6 +7,7 @@ which model they want can pass ``preferred_model`` to short-circuit scoring.
 
 from __future__ import annotations
 
+import asyncio
 import enum
 import logging
 from dataclasses import dataclass
@@ -222,7 +223,12 @@ class ModelRouter:
         # Health check gates availability.
         try:
             available = await adapter.health_check()
-        except Exception:
+        except (OSError, RuntimeError, asyncio.TimeoutError) as exc:
+            logger.warning("[router] health_check failed for %s: %s", adapter.model_id, exc)
+            available = False
+        except Exception as exc:
+            logger.error("[router] unexpected error in health_check for %s: %s",
+                         adapter.model_id, exc, exc_info=True)
             available = False
 
         wq, ws, wc = _STRATEGY_WEIGHTS[strategy]
