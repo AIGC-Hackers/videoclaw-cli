@@ -868,7 +868,9 @@ class SeedanceVideoAdapter:
 
         ``POST {base}/api/v1/doubao/create``
         """
-        payload = self._build_payload(request)
+        # _build_payload reads + base64-encodes character/scene reference images
+        # (potentially several MB each) — offload to thread pool
+        payload = await asyncio.to_thread(self._build_payload, request)
 
         # Log content summary (not full base64)
         content_summary = []
