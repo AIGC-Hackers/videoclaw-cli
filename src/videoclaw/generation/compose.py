@@ -376,10 +376,31 @@ class VideoComposer:
                     await _asyncio.gather(*[get_video_duration(vp) for vp in video_paths])
                 )
 
-            cmd = self._build_concat_cmd(
-                video_paths, output_path, resolved, transition_duration,
-                clip_durations,
-            )
+            # Skip zero/negative-duration clips — they break xfade offsets.
+            valid = [(vp, dur) for vp, dur in zip(video_paths, clip_durations) if dur > 0]
+            skipped = len(video_paths) - len(valid)
+            if skipped:
+                logger.warning(
+                    "[compose] Skipping %d zero/negative-duration clip(s) before xfade",
+                    skipped,
+                )
+            if not valid:
+                raise ValueError("All clips have zero/negative duration — cannot compose")
+            if len(valid) == 1:
+                # After filtering only one clip remains — simple remux, no transition
+                cmd = self._build_single_copy_cmd(valid[0][0], output_path)
+            else:
+                video_paths = [vp for vp, _ in valid]
+                clip_durations = [dur for _, dur in valid]
+                # Rebuild transitions to match filtered clip count
+                n_boundaries = len(video_paths) - 1
+                resolved = resolved[:n_boundaries]
+                while len(resolved) < n_boundaries:
+                    resolved.append(transition)
+                cmd = self._build_concat_cmd(
+                    video_paths, output_path, resolved, transition_duration,
+                    clip_durations,
+                )
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         await self._run_ffmpeg(cmd)
@@ -780,8 +801,27 @@ class VideoComposer:
             )
 
     @staticmethod
-    async def _run_ffmpeg(cmd: list[str]) -> None:
-        """Run an FFmpeg command, raising on failure."""
+    async def _run_ffmpeg(cmd: list[str], *, max_attempts: int = 2) -> None:
+        """Run an FFmpeg command, raising on failure.
+
+        Retries once on transient RuntimeError (e.g. resource busy, temp lock)
+        with a short backoff before giving up.
+        """
+        import asyncio as _asyncio
+
         logger.debug("FFmpeg command: %s", " ".join(cmd))
-        await run_ffmpeg(cmd[1:])  # run_ffmpeg prepends 'ffmpeg' or takes args
-        # run_ffmpeg from utils already raises on error
+        args = cmd[1:]  # run_ffmpeg prepends 'ffmpeg'
+        last_err: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                await run_ffmpeg(args)
+                return
+            except RuntimeError as exc:
+                last_err = exc
+                if attempt < max_attempts:
+                    logger.warning(
+                        "[compose] FFmpeg attempt %d/%d failed, retrying: %s",
+                        attempt, max_attempts, exc,
+                    )
+                    await _asyncio.sleep(1.0 * attempt)
+        raise last_err  # type: ignore[misc]

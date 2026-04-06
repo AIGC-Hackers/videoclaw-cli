@@ -1002,3 +1002,137 @@ class TestScenesNeedingRegen:
         )
         result = scenes_needing_regen(report)
         assert result == ["s02"]
+
+
+# ---------------------------------------------------------------------------
+# P2#9 — Compose boundary protection
+# ---------------------------------------------------------------------------
+
+
+class TestZeroDurationSkip:
+    """compose() must skip zero/negative-duration clips and handle edge cases."""
+
+    @pytest.mark.asyncio
+    async def test_skips_zero_duration_clips(self, tmp_path: Path):
+        """Clips with duration <= 0 must be filtered before building xfade cmd."""
+        composer = VideoComposer()
+
+        run_ffmpeg_calls: list[list[str]] = []
+
+        async def _mock_run_ffmpeg(cmd: list[str], **kw) -> None:
+            run_ffmpeg_calls.append(cmd)
+            # Create the output file so the caller doesn't crash
+            Path(cmd[-1]).parent.mkdir(parents=True, exist_ok=True)
+            Path(cmd[-1]).write_bytes(b"mock")
+
+        composer._run_ffmpeg = _mock_run_ffmpeg  # type: ignore[method-assign]
+        await composer._ensure_ffmpeg()
+
+        v1 = tmp_path / "a.mp4"
+        v2 = tmp_path / "b.mp4"
+        v3 = tmp_path / "c.mp4"
+        for v in (v1, v2, v3):
+            v.write_bytes(b"fake")
+
+        out = tmp_path / "out.mp4"
+        # b.mp4 has zero duration — should be skipped
+        result = await composer.compose(
+            video_paths=[v1, v2, v3],
+            output_path=out,
+            clip_durations=[5.0, 0.0, 5.0],  # zero middle clip
+        )
+
+        assert result == out
+        # Only one ffmpeg call, and it must not include b.mp4
+        assert len(run_ffmpeg_calls) == 1
+        cmd_str = " ".join(run_ffmpeg_calls[0])
+        assert str(v2) not in cmd_str
+
+    @pytest.mark.asyncio
+    async def test_all_zero_duration_raises(self, tmp_path: Path):
+        """All zero-duration clips must raise ValueError (cannot compose nothing)."""
+        composer = VideoComposer()
+        await composer._ensure_ffmpeg()
+
+        v1 = tmp_path / "a.mp4"
+        v2 = tmp_path / "b.mp4"
+        v1.write_bytes(b"fake")
+        v2.write_bytes(b"fake")
+
+        # Both clips have zero duration → after filtering, nothing remains
+        with pytest.raises(ValueError, match="zero"):
+            await composer.compose(
+                video_paths=[v1, v2],
+                output_path=tmp_path / "out.mp4",
+                clip_durations=[0.0, 0.0],
+            )
+
+    @pytest.mark.asyncio
+    async def test_single_valid_clip_after_filter(self, tmp_path: Path):
+        """When filtering leaves exactly one clip, it falls back to single-file remux."""
+        composer = VideoComposer()
+        await composer._ensure_ffmpeg()
+
+        run_ffmpeg_calls: list[list[str]] = []
+
+        async def _mock_run_ffmpeg(cmd: list[str], **kw) -> None:
+            run_ffmpeg_calls.append(cmd)
+            Path(cmd[-1]).parent.mkdir(parents=True, exist_ok=True)
+            Path(cmd[-1]).write_bytes(b"mock")
+
+        composer._run_ffmpeg = _mock_run_ffmpeg  # type: ignore[method-assign]
+
+        v1 = tmp_path / "a.mp4"
+        v2 = tmp_path / "b.mp4"
+        v1.write_bytes(b"fake")
+        v2.write_bytes(b"fake")
+
+        out = tmp_path / "out.mp4"
+        # v2 has zero duration → after filter only v1 remains
+        result = await composer.compose(
+            video_paths=[v1, v2],
+            output_path=out,
+            clip_durations=[5.0, 0.0],
+        )
+
+        assert result == out
+        # Single-clip remux command should use -c copy (not xfade)
+        assert len(run_ffmpeg_calls) == 1
+        cmd_str = " ".join(run_ffmpeg_calls[0])
+        assert "xfade" not in cmd_str
+
+
+class TestFFmpegRetry:
+    """_run_ffmpeg() must retry once on RuntimeError before giving up."""
+
+    @pytest.mark.asyncio
+    async def test_retries_on_runtime_error(self):
+        """Second attempt should succeed after first fails."""
+        from videoclaw.generation.compose import VideoComposer
+
+        call_count = 0
+
+        async def _failing_run_ffmpeg(args, **kw):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("transient error")
+
+        with patch("videoclaw.generation.compose.run_ffmpeg", side_effect=_failing_run_ffmpeg):
+            composer = VideoComposer()
+            await composer._run_ffmpeg(["ffmpeg", "-i", "in.mp4", "out.mp4"])
+
+        assert call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_raises_after_max_attempts(self):
+        """Persistent failures must propagate as RuntimeError."""
+        from videoclaw.generation.compose import VideoComposer
+
+        async def _always_fail(args, **kw):
+            raise RuntimeError("persistent failure")
+
+        with patch("videoclaw.generation.compose.run_ffmpeg", side_effect=_always_fail):
+            composer = VideoComposer()
+            with pytest.raises(RuntimeError, match="persistent failure"):
+                await composer._run_ffmpeg(["ffmpeg", "-i", "in.mp4", "out.mp4"])
