@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time as _time
 from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -156,8 +157,6 @@ class DAGExecutor:
 
     async def _execute_node(self, node: TaskNode) -> None:
         """Dispatch *node* to its handler, with retry logic and cost tracking."""
-        import time as _time
-
         handler = self._handlers.get(node.task_type)
         if handler is None:
             self.dag.mark_failed(node.node_id, f"No handler for {node.task_type}")

@@ -353,6 +353,25 @@ def build_episode_dag(
     return dag, state
 
 
+def _build_scene_dict(scene: "DramaScene", character_voices: dict) -> dict:
+    """Build the TTS-node scene parameter dict for a single scene."""
+    voice = None
+    if scene.speaking_character and scene.speaking_character in character_voices:
+        voice = character_voices[scene.speaking_character].get("voice_id")
+    return {
+        "scene_id": scene.scene_id,
+        "dialogue": scene.dialogue,
+        "dialogue_line_type": getattr(scene, "dialogue_line_type", "dialogue"),
+        "narration": scene.narration,
+        "narration_type": getattr(scene, "narration_type", "voiceover"),
+        "speaking_character": scene.speaking_character,
+        "emotion": scene.emotion,
+        "duration_seconds": scene.duration_seconds,
+        "voice": voice,
+        "transition": scene.transition,
+    }
+
+
 def _build_drama_dag(
     state: ProjectState,
     episode: Episode,
@@ -452,22 +471,7 @@ def _build_drama_dag(
     tts_node_ids: list[str] = []
     tts_scenes = [scene for _, scene in gen_pairs]  # same subset as video
     for scene in tts_scenes:
-        voice = None
-        if scene.speaking_character and scene.speaking_character in character_voices:
-            voice = character_voices[scene.speaking_character].get("voice_id")
-
-        scene_dict = {
-            "scene_id": scene.scene_id,
-            "dialogue": scene.dialogue,
-            "dialogue_line_type": getattr(scene, "dialogue_line_type", "dialogue"),
-            "narration": scene.narration,
-            "narration_type": getattr(scene, "narration_type", "voiceover"),
-            "speaking_character": scene.speaking_character,
-            "emotion": scene.emotion,
-            "duration_seconds": scene.duration_seconds,
-            "voice": voice,
-            "transition": scene.transition,
-        }
+        scene_dict = _build_scene_dict(scene, character_voices)
         scenes_data.append(scene_dict)
 
         tts_id = f"tts_{scene.scene_id}"
