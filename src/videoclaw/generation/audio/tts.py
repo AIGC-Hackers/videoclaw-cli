@@ -615,7 +615,8 @@ class TTSManager:
         )
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_bytes(audio_data)
+        # Offload disk write — audio data (100 KB–1 MB) would block event loop
+        await asyncio.to_thread(output_path.write_bytes, audio_data)
 
         logger.info(
             "Voiceover saved: %s (%d bytes)",
@@ -696,7 +697,9 @@ class TTSManager:
                     )
 
             audio_path = output_dir / f"line_{i:04d}_{speaker}.mp3"
-            audio_path.write_bytes(audio_data)
+            # gather() runs multiple _synth_one tasks concurrently; write_bytes blocks
+            # all of them — offload so concurrent TTS tasks can complete in parallel
+            await asyncio.to_thread(audio_path.write_bytes, audio_data)
 
             audio_type = self._LINE_TYPE_TO_AUDIO_TYPE.get(line.line_type, AudioType.DIALOGUE)
             return AudioSegment(
