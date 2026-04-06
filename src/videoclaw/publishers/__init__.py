@@ -8,6 +8,7 @@ __all__ = [
     "PublishRequest",
     "PublishResult",
     "PublishStatus",
+    "TikTokPublisher",
     # Base types
     "Publisher",
     "YouTubePublisher",
@@ -18,6 +19,7 @@ def __getattr__(name: str):
     """Lazy imports for platform publishers with heavy SDK dependencies."""
     _import_map = {
         "BilibiliPublisher": "videoclaw.publishers.bilibili",
+        "TikTokPublisher": "videoclaw.publishers.tiktok",
         "YouTubePublisher": "videoclaw.publishers.youtube",
     }
     if name in _import_map:

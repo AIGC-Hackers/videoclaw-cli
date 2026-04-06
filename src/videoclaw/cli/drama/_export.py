@@ -39,6 +39,7 @@ Output structure::
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import shutil
@@ -92,6 +93,20 @@ def drama_export(
     verbose: Annotated[
         bool, typer.Option("--verbose", "-v")
     ] = False,
+    publish: Annotated[
+        bool,
+        typer.Option(
+            "--publish",
+            help="After export, publish the final video to a platform.",
+        ),
+    ] = False,
+    platform: Annotated[
+        str,
+        typer.Option(
+            "--platform",
+            help="Target platform for publishing (youtube, tiktok, bilibili).",
+        ),
+    ] = "youtube",
 ) -> None:
     """Export all intermediate assets to a structured deliverables directory.
 
@@ -101,9 +116,14 @@ def drama_export(
     reports into a single directory for human review.
 
     \b
+    With --publish, attempts to upload the final video to the specified
+    platform after export completes.
+
+    \b
     Examples:
         claw drama export 97e8424712d24fb2
         claw drama export abc123 -e 1 -o ./review/
+        claw drama export abc123 --publish --platform tiktok
     """
     configure_logging(verbose)
     show_banner()
@@ -477,10 +497,90 @@ def drama_export(
     for category, count in sorted(stats.items()):
         console.print(f"  {category}: {count}")
 
+    # ── Publish bridge ──────────────────────────────────────────
+    publish_result_data: dict | None = None
+    if publish:
+        platform_lower = platform.lower()
+        valid_platforms = ("youtube", "tiktok", "bilibili")
+        if platform_lower not in valid_platforms:
+            console.print(
+                f"[red]Unknown platform {platform!r}. "
+                f"Choose from: {', '.join(valid_platforms)}[/red]"
+            )
+            raise typer.Exit(code=1)
+
+        # Find the final video in 09_final/
+        final_dir = base / "09_final"
+        final_videos = sorted(final_dir.glob("*.mp4")) if final_dir.exists() else []
+        if not final_videos:
+            console.print(
+                "[yellow]No final video found in 09_final/. "
+                "Skipping publish.[/yellow]"
+            )
+        else:
+            video_path = final_videos[0]
+            console.print(
+                f"\n[bold cyan]Publishing to {platform_lower}:[/bold cyan] "
+                f"{video_path.name}"
+            )
+
+            from videoclaw.publishers.base import PublishRequest, PublishStatus
+
+            ep_title = ""
+            if episodes:
+                ep_title = (
+                    episodes[0].title
+                    if hasattr(episodes[0], "title") and episodes[0].title
+                    else f"Episode {episodes[0].number}"
+                )
+            title = f"{series.title} - {ep_title}" if series.title else ep_title
+            description = series.metadata.get("description", "")
+
+            request = PublishRequest(
+                video_path=video_path,
+                title=title,
+                description=description,
+            )
+
+            # Import the appropriate publisher
+            if platform_lower == "youtube":
+                from videoclaw.publishers.youtube import YouTubePublisher
+                publisher = YouTubePublisher()
+            elif platform_lower == "tiktok":
+                from videoclaw.publishers.tiktok import TikTokPublisher
+                publisher = TikTokPublisher()
+            else:
+                from videoclaw.publishers.bilibili import BilibiliPublisher
+                publisher = BilibiliPublisher()
+
+            result = asyncio.run(publisher.publish(request))
+
+            if result.status == PublishStatus.FAILED:
+                console.print(
+                    f"[yellow]Publisher for {platform_lower} is not yet "
+                    f"implemented. Video exported to {video_path}.[/yellow]"
+                )
+            elif result.status == PublishStatus.PUBLISHED:
+                console.print(
+                    f"[bold green]Published:[/bold green] {result.url}"
+                )
+            else:
+                console.print(
+                    f"[cyan]Publish status:[/cyan] {result.status.value}"
+                )
+
+            publish_result_data = {
+                "platform": result.platform,
+                "status": result.status.value,
+                "url": result.url,
+                "error": result.error,
+            }
+
     out.set_result({
         "series_id": series_id,
         "output_dir": str(base),
         "stats": stats,
         "total_assets": total,
+        **({"publish": publish_result_data} if publish_result_data else {}),
     })
     out.emit()
