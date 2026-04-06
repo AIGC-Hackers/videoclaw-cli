@@ -82,3 +82,31 @@ async def test_save_async_compact_json(tmp_path: Path):
     path = await mgr.save_async(ps)
     raw = path.read_text(encoding="utf-8")
     assert "\n" not in raw
+
+
+# ---------------------------------------------------------------------------
+# Async load (P1 — symmetric with save_async)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_load_async_roundtrip(tmp_path: Path):
+    """load_async() must return the same state as load()."""
+    mgr = StateManager(projects_dir=tmp_path)
+    ps = mgr.create_project("async load test")
+    ps.storyboard = [Shot(shot_id="s1", description="test shot")]
+    mgr.save(ps)
+
+    loaded = await mgr.load_async(ps.project_id)
+    assert loaded.project_id == ps.project_id
+    assert loaded.prompt == "async load test"
+    assert len(loaded.storyboard) == 1
+    assert loaded.storyboard[0].shot_id == "s1"
+
+
+@pytest.mark.asyncio
+async def test_load_async_raises_on_missing(tmp_path: Path):
+    """load_async() must raise FileNotFoundError for unknown project IDs."""
+    mgr = StateManager(projects_dir=tmp_path)
+    with pytest.raises(FileNotFoundError):
+        await mgr.load_async("nonexistent-project-id")
