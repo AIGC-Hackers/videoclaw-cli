@@ -51,19 +51,22 @@ async def create_project(body: CreateProjectRequest) -> ProjectSummary:
 
 @router.get("/", response_model=list[ProjectSummary])
 async def list_projects() -> list[ProjectSummary]:
-    out: list[ProjectSummary] = []
-    for pid in _state_mgr.list_projects():
+    pids = _state_mgr.list_projects()
+
+    async def _load_one(pid: str) -> ProjectSummary | None:
         try:
-            out.append(_summarise(_state_mgr.load(pid)))
+            return _summarise(await _state_mgr.load_async(pid))
         except Exception:
-            continue
-    return out
+            return None
+
+    results = await asyncio.gather(*(_load_one(pid) for pid in pids))
+    return [r for r in results if r is not None]
 
 
 @router.get("/{project_id}")
 async def get_project(project_id: str) -> dict:
     try:
-        ps = _state_mgr.load(project_id)
+        ps = await _state_mgr.load_async(project_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Project not found")
     return ps.to_dict()

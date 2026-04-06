@@ -94,7 +94,7 @@ async def start_generation(body: GenerateRequest) -> GenerateResponse:
 @router.get("/{project_id}/status")
 async def get_status(project_id: str) -> dict:
     try:
-        ps = _state_mgr.load(project_id)
+        ps = await _state_mgr.load_async(project_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Project not found")
     return {
