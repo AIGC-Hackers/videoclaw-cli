@@ -30,6 +30,7 @@ modified clip when multiple session-prefixed files exist.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import json
@@ -766,12 +767,14 @@ class VisionAuditor:
             total_shots=len(scenes),
         )
 
-        for scene in scenes:
-            # Incremental: skip previously passed scenes
+        sem = asyncio.Semaphore(5)
+
+        async def _audit_one(scene: DramaScene) -> ShotAuditResult:
             if incremental and scene.audit_result:
                 ar = scene.audit_result
                 if ar.get("passed") and not ar.get("regen_required"):
-                    result = ShotAuditResult(
+                    logger.info("  %s: incremental skip (already passed)", scene.scene_id)
+                    return ShotAuditResult(
                         shot_id=scene.scene_id,
                         passed=True,
                         regen_required=False,
@@ -779,25 +782,21 @@ class VisionAuditor:
                         tolerables=list(ar.get("tolerables", [])),
                         clip_path=ar.get("clip_path", ""),
                     )
-                    report.shot_results.append(result)
-                    report.passed_shots += 1
-                    logger.info("  %s: incremental skip (already passed)", scene.scene_id)
-                    continue
-
-            clip_path = resolve_clip(scene.scene_id, clip_dir, scene.video_asset_path)
-            if clip_path is None:
+            cp = resolve_clip(scene.scene_id, clip_dir, scene.video_asset_path)
+            if cp is None:
                 logger.warning("No clip found for %s in %s — skipping", scene.scene_id, clip_dir)
-                result = ShotAuditResult.error_result(
-                    scene.scene_id, f"no clip found in {clip_dir}"
-                )
-            else:
-                result = await self.audit_shot(scene, clip_path, series=series)
+                return ShotAuditResult.error_result(scene.scene_id, f"no clip found in {clip_dir}")
+            async with sem:
+                return await self.audit_shot(scene, cp, series=series)
 
+        results = await asyncio.gather(*[_audit_one(s) for s in scenes])
+
+        for result in results:
             report.shot_results.append(result)
             if result.passed:
                 report.passed_shots += 1
             if result.regen_required:
-                report.regen_required.append(scene.scene_id)
+                report.regen_required.append(result.shot_id)
 
         return report
 
@@ -868,24 +867,20 @@ class VisionAuditor:
             total_shots=len(episode.scenes),
         )
 
-        for scene in episode.scenes:
-            # Incremental: skip already-passed shots
+        sem = asyncio.Semaphore(5)
+
+        async def _audit_one(scene: DramaScene) -> ShotAuditResult:
             if incremental and scene.audit_result:
                 prev = scene.audit_result
                 if prev.get("passed") and not prev.get("regen_required"):
                     logger.info("  %s: incremental skip (already passed)", scene.scene_id)
-                    result = ShotAuditResult(
+                    return ShotAuditResult(
                         shot_id=scene.scene_id,
                         passed=True,
                         fatals=prev.get("fatals", []),
                         tolerables=prev.get("tolerables", []),
                         clip_path=prev.get("clip_path", ""),
                     )
-                    report.shot_results.append(result)
-                    report.passed_shots += 1
-                    continue
-
-            # Resolve clip: video_asset_path > clip_dir > glob
             cp = resolve_clip(
                 scene.scene_id,
                 effective_clip_dir or Path("."),
@@ -896,19 +891,18 @@ class VisionAuditor:
                     "No clip found for %s — skipping (video_asset_path=%r, clip_dir=%s)",
                     scene.scene_id, scene.video_asset_path, effective_clip_dir,
                 )
-                result = ShotAuditResult.error_result(
-                    scene.scene_id, "clip not found"
-                )
-            else:
-                result = await self.audit_shot(scene, cp, series=series)
+                return ShotAuditResult.error_result(scene.scene_id, "clip not found")
+            async with sem:
+                return await self.audit_shot(scene, cp, series=series)
 
+        results = await asyncio.gather(*[_audit_one(s) for s in episode.scenes])
+
+        for scene, result in zip(episode.scenes, results):
             report.shot_results.append(result)
             if result.passed:
                 report.passed_shots += 1
             if result.regen_required:
                 report.regen_required.append(scene.scene_id)
-
-            # Persist audit result back into scene state
             if persist_results:
                 scene.audit_result = result.to_dict()
 

@@ -12,6 +12,7 @@ Seedance 2.0 Universal Reference best practices:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from pathlib import Path
@@ -212,36 +213,39 @@ class CharacterDesigner:
         locale = get_locale(series.language)
         style_line = locale.character_image_style.format(style=style)
 
-        for character in series.characters:
-            # Skip if already has images (unless force)
+        sem = asyncio.Semaphore(3)
+
+        async def _gen_one(character) -> None:  # type: ignore[no-untyped-def]
             if not force:
                 if self._turnaround and character.reference_image:
-                    logger.info("Skipping %s (already has turnaround sheet)",
-                                character.name)
-                    continue
+                    logger.info("Skipping %s (already has turnaround sheet)", character.name)
+                    return
                 if not self._turnaround and self._multi_angle and character.reference_images:
                     logger.info("Skipping %s (already has %d reference images)",
                                 character.name, len(character.reference_images))
-                    continue
+                    return
                 if not self._turnaround and not self._multi_angle and character.reference_image:
                     logger.info("Skipping %s (already has reference image)", character.name)
-                    continue
+                    return
 
             appearance = clean_visual_prompt(character.visual_prompt)
             safe_name = re.sub(r"[^\w\-]", "_", character.name).strip("_")
 
-            if self._turnaround:
-                await self._generate_turnaround(
-                    gen, character, appearance, style_line, safe_name, char_dir,
-                )
-            elif self._multi_angle:
-                await self._generate_multi_angle(
-                    gen, character, appearance, style_line, safe_name, char_dir,
-                )
-            else:
-                await self._generate_single(
-                    gen, character, appearance, style_line, safe_name, char_dir,
-                )
+            async with sem:
+                if self._turnaround:
+                    await self._generate_turnaround(
+                        gen, character, appearance, style_line, safe_name, char_dir,
+                    )
+                elif self._multi_angle:
+                    await self._generate_multi_angle(
+                        gen, character, appearance, style_line, safe_name, char_dir,
+                    )
+                else:
+                    await self._generate_single(
+                        gen, character, appearance, style_line, safe_name, char_dir,
+                    )
+
+        await asyncio.gather(*[_gen_one(c) for c in series.characters])
 
         self._drama_mgr.save(series)
         logger.info("Character designs saved for series %s", series.series_id)
@@ -371,8 +375,9 @@ class CharacterDesigner:
         style_line = locale.character_image_style.format(style=style)
 
         refreshed: dict[str, str] = {}
+        sem = asyncio.Semaphore(3)
 
-        for character in series.characters:
+        async def _refresh_one(character) -> None:  # type: ignore[no-untyped-def]
             if not force and character.reference_image_url:
                 logger.info(
                     "Skipping %s URL refresh (has URL: %s...)",
@@ -380,13 +385,12 @@ class CharacterDesigner:
                     character.reference_image_url[:60],
                 )
                 refreshed[character.name] = character.reference_image_url
-                continue
+                return
 
             appearance = clean_visual_prompt(character.visual_prompt)
             safe_name = re.sub(r"[^\w\-]", "_", character.name).strip("_")
             filename = f"{safe_name}_turnaround.png"
 
-            # Delete stale local file so provider generates anew
             local_path = char_dir / filename
             if local_path.exists():
                 local_path.unlink()
@@ -399,12 +403,13 @@ class CharacterDesigner:
 
             logger.info("Refreshing URL for %s...", character.name)
             try:
-                path = await gen.generate(
-                    prompt,
-                    output_dir=char_dir,
-                    filename=filename,
-                    size="16:9",
-                )
+                async with sem:
+                    path = await gen.generate(
+                        prompt,
+                        output_dir=char_dir,
+                        filename=filename,
+                        size="16:9",
+                    )
                 character.reference_image = str(path)
                 character.reference_images = [str(path)]
 
@@ -412,16 +417,14 @@ class CharacterDesigner:
                 if hasattr(gen, "last_image_url") and gen.last_image_url:
                     url = gen.last_image_url
                     character.reference_image_url = url
-                    logger.info(
-                        "Refreshed %s URL: %s...",
-                        character.name,
-                        url[:80],
-                    )
+                    logger.info("Refreshed %s URL: %s...", character.name, url[:80])
 
                 refreshed[character.name] = url
             except Exception as e:
                 logger.error("Failed to refresh %s: %s", character.name, e)
                 refreshed[character.name] = ""
+
+        await asyncio.gather(*[_refresh_one(c) for c in series.characters])
 
         self._drama_mgr.save(series)
         logger.info(
