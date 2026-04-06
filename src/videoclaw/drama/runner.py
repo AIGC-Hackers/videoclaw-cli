@@ -10,6 +10,8 @@ When URLs are expired (HTTP 403/404), the runner auto-refreshes them via
 
 from __future__ import annotations
 
+import asyncio
+import json as _json
 import logging
 from typing import Any
 
@@ -85,8 +87,6 @@ async def ensure_fresh_urls(
     dict[str, str]
         Mapping of character name → current (possibly refreshed) HTTPS URL.
     """
-    import asyncio
-
     import httpx
 
     from videoclaw.drama.character_designer import CharacterDesigner
@@ -868,8 +868,6 @@ class DramaRunner:
         the most-drifted scene, then recomposes.  Stops early if alignment
         is acceptable or pipeline is not in completed state.
         """
-        import json as _regen_json
-
         for regen_round in range(1, max_regen_rounds + 1):
             if state.status.value != "completed":
                 break
@@ -878,7 +876,7 @@ class DramaRunner:
             if not raw_report:
                 break
 
-            report = _regen_json.loads(raw_report)
+            report = _json.loads(raw_report)
             regen_ids: list[str] = report.get("scenes_needing_regen", [])
             if not regen_ids:
                 logger.info("[regen] Alignment OK — no scenes need regen")
@@ -930,8 +928,6 @@ class DramaRunner:
         Episodes are run in order because each may depend on the previous
         episode's cliffhanger for narrative continuity.
         """
-        import json as _json
-
         series.status = DramaStatus.GENERATING
         self.drama_mgr.save(series)
 

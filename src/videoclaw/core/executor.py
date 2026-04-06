@@ -540,25 +540,14 @@ class DAGExecutor:
                     len(image_paths), shot_id,
                 )
 
-        # Scene reference URLs (from ConsistencyManifest)
+        # Scene and prop reference URLs (from ConsistencyManifest) — same dispatch logic
         scene_ref_urls: dict[str, str] = node.params.get("scene_reference_urls", {})
-        for loc_key, url in scene_ref_urls.items():
-            if url and url.startswith("http"):
-                image_urls.append({"url": url, "role": "reference_image"})
-            elif url:
-                if "image_paths" not in extra:
-                    extra["image_paths"] = []
-                extra["image_paths"].append({"path": url, "role": "reference_image"})
-
-        # Prop reference URLs (from ConsistencyManifest)
         prop_ref_urls: dict[str, str] = node.params.get("prop_reference_urls", {})
-        for prop_key, url in prop_ref_urls.items():
+        for url in (*scene_ref_urls.values(), *prop_ref_urls.values()):
             if url and url.startswith("http"):
                 image_urls.append({"url": url, "role": "reference_image"})
             elif url:
-                if "image_paths" not in extra:
-                    extra["image_paths"] = []
-                extra["image_paths"].append({"path": url, "role": "reference_image"})
+                extra.setdefault("image_paths", []).append({"path": url, "role": "reference_image"})
 
         logger.info(
             "[video_gen] Total reference images for shot %s: %d URLs + %d paths",
