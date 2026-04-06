@@ -19,9 +19,10 @@ import io
 import json
 import sys
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from rich.console import Console
+if TYPE_CHECKING:
+    from rich.console import Console
 
 import videoclaw
 
@@ -63,8 +64,9 @@ class OutputContext:
 # Module-level singleton -- safe because CLI commands run single-threaded.
 _output_ctx = OutputContext()
 
-# A "silent" console that discards all output (used in JSON mode).
-_null_console = Console(file=io.StringIO(), no_color=True)
+# Lazily-initialised consoles — rich.console costs ~125ms; defer until first use.
+_null_console: Console | None = None
+_real_console: Console | None = None
 
 
 def get_output() -> OutputContext:
@@ -78,11 +80,17 @@ def get_console() -> Console:
     In JSON mode returns a console that writes to /dev/null so that
     ``console.print()`` calls throughout the codebase become no-ops.
     In normal mode returns a real stderr/stdout console.
+
+    Both console instances are created lazily on first call to avoid
+    paying the ~125ms rich.console import cost at CLI startup.
     """
+    global _null_console, _real_console
+    from rich.console import Console  # deferred — saves ~125ms at startup
+
     if _output_ctx.json_mode:
+        if _null_console is None:
+            _null_console = Console(file=io.StringIO(), no_color=True)
         return _null_console
+    if _real_console is None:
+        _real_console = Console()
     return _real_console
-
-
-# The "real" console for normal (non-JSON) terminal output.
-_real_console = Console()
