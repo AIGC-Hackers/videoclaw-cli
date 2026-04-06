@@ -160,12 +160,24 @@ class StateManager:
         return state
 
     def save(self, state: ProjectState) -> Path:
-        """Write *state* to disk as JSON and return the file path."""
+        """Write *state* to disk as JSON and return the file path.
+
+        Uses compact JSON (no indentation) for faster serialisation.
+        """
         state.touch()
         path = self._state_path(state.project_id)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(state.to_dict(), indent=2), encoding="utf-8")
+        path.write_text(
+            json.dumps(state.to_dict(), separators=(",", ":")),
+            encoding="utf-8",
+        )
         return path
+
+    async def save_async(self, state: ProjectState) -> Path:
+        """Async variant — offloads disk I/O to a thread to avoid blocking the event loop."""
+        import asyncio
+
+        return await asyncio.to_thread(self.save, state)
 
     def load(self, project_id: str) -> ProjectState:
         """Load a project's state from disk.

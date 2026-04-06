@@ -35,15 +35,26 @@ logger = logging.getLogger(__name__)
 # URL freshness validation
 # ---------------------------------------------------------------------------
 
-async def _check_url_alive(url: str, timeout: float = 10.0) -> bool:
-    """Return True if *url* responds with HTTP 2xx to a HEAD request."""
+async def _check_url_alive(
+    url: str,
+    client: Any = None,
+    timeout: float = 10.0,
+) -> bool:
+    """Return True if *url* responds with HTTP 2xx to a HEAD request.
+
+    When *client* is provided (an ``httpx.AsyncClient``), it is reused to
+    avoid the overhead of creating a new TCP connection per check.
+    """
     import httpx
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        if client is not None:
             resp = await client.head(url, follow_redirects=True)
-            return 200 <= resp.status_code < 400
-    except Exception:
+        else:
+            async with httpx.AsyncClient(timeout=timeout) as _client:
+                resp = await _client.head(url, follow_redirects=True)
+        return 200 <= resp.status_code < 400
+    except (httpx.HTTPError, OSError):
         return False
 
 
@@ -55,8 +66,9 @@ async def ensure_fresh_urls(
 ) -> dict[str, str]:
     """Validate character reference image URLs; refresh expired ones.
 
-    Performs an HTTP HEAD check on each character's ``reference_image_url``.
-    If the URL is missing, empty, or returns non-2xx, re-generates the
+    Performs parallel HTTP HEAD checks on all character ``reference_image_url``
+    values using a single shared ``httpx.AsyncClient`` (connection pooling).
+    If a URL is missing, empty, or returns non-2xx, re-generates the
     turnaround sheet to obtain a fresh URL.
 
     Parameters
@@ -73,6 +85,10 @@ async def ensure_fresh_urls(
     dict[str, str]
         Mapping of character name → current (possibly refreshed) HTTPS URL.
     """
+    import asyncio
+
+    import httpx
+
     from videoclaw.drama.character_designer import CharacterDesigner
 
     chars_needing_refresh: list[str] = []
@@ -80,20 +96,34 @@ async def ensure_fresh_urls(
     if force:
         chars_needing_refresh = [c.name for c in series.characters]
     else:
+        # Parallel URL freshness check — single shared client, asyncio.gather
+        chars_with_urls = [
+            (char, char.reference_image_url)
+            for char in series.characters
+            if char.reference_image_url
+        ]
+        # Characters with no URL always need refresh
         for char in series.characters:
-            url = char.reference_image_url
-            if not url:
+            if not char.reference_image_url:
                 chars_needing_refresh.append(char.name)
-                continue
-            alive = await _check_url_alive(url)
-            if not alive:
-                logger.warning(
-                    "Character %s URL expired/unreachable: %s...",
-                    char.name, url[:60],
+
+        if chars_with_urls:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                results = await asyncio.gather(
+                    *[
+                        _check_url_alive(url, client=client)
+                        for _, url in chars_with_urls
+                    ],
+                    return_exceptions=True,
                 )
-                # Clear the stale URL so refresh_urls() will regenerate
-                char.reference_image_url = None
-                chars_needing_refresh.append(char.name)
+            for (char, url), alive in zip(chars_with_urls, results):
+                if isinstance(alive, BaseException) or not alive:
+                    logger.warning(
+                        "Character %s URL expired/unreachable: %s...",
+                        char.name, url[:60],
+                    )
+                    char.reference_image_url = None
+                    chars_needing_refresh.append(char.name)
 
     if not chars_needing_refresh:
         logger.info("All character URLs are fresh — no refresh needed")

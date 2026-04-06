@@ -38,6 +38,9 @@ class DAGExecutor:
     of each node the project state is checkpointed to disk.
     """
 
+    # Checkpoint every N completed nodes instead of every node (reduces I/O 5x)
+    _CHECKPOINT_INTERVAL = 5
+
     def __init__(
         self,
         dag: DAG,
@@ -54,6 +57,7 @@ class DAGExecutor:
         self._semaphore = asyncio.Semaphore(max_concurrency)
         self._config = get_config()
         self.cost_tracker = cost_tracker
+        self._nodes_since_checkpoint: int = 0
 
         # Handler dispatch table -- maps TaskType to its async handler.
         # During Phase 1 every entry points at a placeholder.  Later phases
@@ -82,7 +86,7 @@ class DAGExecutor:
     async def run(self) -> ProjectState:
         """Execute the full DAG and return the final project state."""
         self.state.status = ProjectStatus.GENERATING
-        self._checkpoint()
+        await self._checkpoint(force=True)
 
         while not self.dag.is_complete:
             ready = self.dag.get_ready_nodes()
@@ -120,7 +124,7 @@ class DAGExecutor:
             except Exception:
                 logger.exception("Failed to save cost ledger for %s", self.state.project_id)
 
-        self._checkpoint()
+        await self._checkpoint(force=True)
         logger.info(
             "Project %s finished with status %s",
             self.state.project_id,
@@ -148,7 +152,7 @@ class DAGExecutor:
                 "node_id": node.node_id,
                 "error": f"No handler for {node.task_type}",
             })
-            self._checkpoint()
+            await self._checkpoint(force=True)
             return
 
         self.dag.mark_running(node.node_id)
@@ -173,7 +177,7 @@ class DAGExecutor:
                     "task_type": node.task_type.value,
                     "result": result,
                 })
-                self._checkpoint()
+                await self._checkpoint()
                 return
             except Exception as exc:
                 retries += 1
@@ -195,16 +199,29 @@ class DAGExecutor:
             "task_type": node.task_type.value,
             "error": last_error,
         })
-        self._checkpoint()
+        await self._checkpoint(force=True)
 
     # ------------------------------------------------------------------
     # Checkpoint
     # ------------------------------------------------------------------
 
-    def _checkpoint(self) -> None:
-        """Persist current project state to disk."""
+    async def _checkpoint(self, *, force: bool = False) -> None:
+        """Persist current project state to disk (non-blocking).
+
+        To reduce I/O overhead, intermediate checkpoints are batched: only
+        every ``_CHECKPOINT_INTERVAL`` completed nodes trigger a write.
+        Pass ``force=True`` for mandatory checkpoints (start, end, failure).
+
+        The actual write is offloaded to a thread via :meth:`StateManager.save_async`
+        to avoid blocking the event loop.
+        """
+        if not force:
+            self._nodes_since_checkpoint += 1
+            if self._nodes_since_checkpoint < self._CHECKPOINT_INTERVAL:
+                return
+        self._nodes_since_checkpoint = 0
         try:
-            self.state_manager.save(self.state)
+            await self.state_manager.save_async(self.state)
         except Exception:
             logger.exception("Failed to checkpoint state for %s", self.state.project_id)
 
