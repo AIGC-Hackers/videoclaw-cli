@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import shutil
 import uuid
@@ -889,6 +890,10 @@ class DramaManager:
             encoding="utf-8",
         )
         return path
+
+    async def save_async(self, series: DramaSeries) -> Path:
+        """Async variant — offloads disk I/O to a thread to avoid blocking the event loop."""
+        return await asyncio.to_thread(self.save, series)
 
     def load(self, series_id: str) -> DramaSeries:
         path = self._series_path(series_id)

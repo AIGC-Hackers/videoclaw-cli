@@ -803,7 +803,7 @@ class DramaRunner:
             await ensure_fresh_urls(series, drama_manager=self.drama_mgr)
 
         dag, state = build_episode_dag(episode, series, max_shots=max_shots)
-        self.state_mgr.save(state)
+        await self.state_mgr.save_async(state)
 
         tracker = CostTracker(
             project_id=state.project_id,
@@ -850,7 +850,7 @@ class DramaRunner:
         else:
             episode.status = EpisodeStatus.FAILED
 
-        self.drama_mgr.save(series)
+        await self.drama_mgr.save_async(series)
         return state
 
     async def _alignment_regen_loop(
@@ -929,7 +929,7 @@ class DramaRunner:
         episode's cliffhanger for narrative continuity.
         """
         series.status = DramaStatus.GENERATING
-        self.drama_mgr.save(series)
+        await self.drama_mgr.save_async(series)
 
         end = end_episode or len(series.episodes)
         episodes_to_run = [
@@ -971,7 +971,7 @@ class DramaRunner:
                 planner = DramaPlanner()
                 script_data = await planner.script_episode(series, episode, prev_cliffhanger)
                 prev_cliffhanger = script_data.get("cliffhanger")
-                self.drama_mgr.save(series)
+                await self.drama_mgr.save_async(series)
 
             try:
                 await self.run_episode(series, episode, max_shots=max_shots)
@@ -981,7 +981,7 @@ class DramaRunner:
                 logger.exception("Episode %d failed", episode.number)
                 episode.status = EpisodeStatus.FAILED
                 series.status = DramaStatus.FAILED
-                self.drama_mgr.save(series)
+                await self.drama_mgr.save_async(series)
                 raise
 
         # Check if all episodes are done
@@ -990,7 +990,7 @@ class DramaRunner:
         elif any(ep.status == EpisodeStatus.FAILED for ep in series.episodes):
             series.status = DramaStatus.FAILED
 
-        self.drama_mgr.save(series)
+        await self.drama_mgr.save_async(series)
         logger.info("Series %r finished: status=%s cost=$%.4f",
                      series.title, series.status, series.cost_total)
         return series
@@ -1070,7 +1070,7 @@ class DramaRunner:
                 shot.asset_path = None
                 break
 
-        self.state_mgr.save(state)
+        await self.state_mgr.save_async(state)
 
         # 4. Build and execute mini-DAG
         dag = build_scene_regen_dag(episode, series, scene_id, state, recompose)
@@ -1090,7 +1090,7 @@ class DramaRunner:
         )
 
         state = await executor.run()
-        self.drama_mgr.save(series)
+        await self.drama_mgr.save_async(series)
 
         logger.info(
             "Scene %s regeneration %s",
