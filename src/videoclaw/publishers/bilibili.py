@@ -1,33 +1,40 @@
-"""Bilibili publisher (placeholder -- requires bilibili API credentials)."""
+"""Bilibili publisher — upload videos to bilibili.com.
+
+Status: NOT IMPLEMENTED. Requires Bilibili Open Platform API credentials.
+See: https://open.bilibili.com/
+"""
 
 from __future__ import annotations
 
-import logging
-
 from videoclaw.publishers.base import PublishRequest, PublishResult, PublishStatus
 
-logger = logging.getLogger(__name__)
+_NOT_IMPLEMENTED_MSG = (
+    "Bilibili publisher is not yet implemented. "
+    "Requires Bilibili Open Platform API credentials (SESSDATA). "
+    "Contributions welcome — implement the Publisher protocol in this file."
+)
 
 
 class BilibiliPublisher:
+    """Bilibili video publisher (not yet implemented)."""
+
     platform_name = "bilibili"
 
     def __init__(self, sessdata: str | None = None) -> None:
         self._sessdata = sessdata
 
     async def publish(self, request: PublishRequest) -> PublishResult:
-        logger.warning("Bilibili publish not yet implemented, returning stub")
         return PublishResult(
             platform=self.platform_name,
             status=PublishStatus.FAILED,
-            error="Bilibili publisher not yet implemented.",
+            error=_NOT_IMPLEMENTED_MSG,
         )
 
     async def get_status(self, platform_id: str) -> PublishResult:
         return PublishResult(
             platform=self.platform_name,
             status=PublishStatus.FAILED,
-            error="Not implemented",
+            error=_NOT_IMPLEMENTED_MSG,
         )
 
     async def health_check(self) -> bool:

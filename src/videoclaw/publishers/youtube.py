@@ -1,34 +1,40 @@
-"""YouTube publisher (placeholder -- requires google-api-python-client)."""
+"""YouTube publisher — upload videos to YouTube.
+
+Status: NOT IMPLEMENTED. Requires google-api-python-client + OAuth2 credentials.
+See: https://developers.google.com/youtube/v3
+"""
 
 from __future__ import annotations
 
-import logging
-
 from videoclaw.publishers.base import PublishRequest, PublishResult, PublishStatus
 
-logger = logging.getLogger(__name__)
+_NOT_IMPLEMENTED_MSG = (
+    "YouTube publisher is not yet implemented. "
+    "Requires google-api-python-client and OAuth2 credentials. "
+    "Install: pip install google-api-python-client google-auth-oauthlib"
+)
 
 
 class YouTubePublisher:
+    """YouTube video publisher (not yet implemented)."""
+
     platform_name = "youtube"
 
     def __init__(self, credentials_path: str | None = None) -> None:
         self._credentials_path = credentials_path
 
     async def publish(self, request: PublishRequest) -> PublishResult:
-        # TODO: Implement with google-api-python-client
-        logger.warning("YouTube publish not yet implemented, returning stub")
         return PublishResult(
             platform=self.platform_name,
             status=PublishStatus.FAILED,
-            error="YouTube publisher not yet implemented. See docs/publisher-guide.md",
+            error=_NOT_IMPLEMENTED_MSG,
         )
 
     async def get_status(self, platform_id: str) -> PublishResult:
         return PublishResult(
             platform=self.platform_name,
             status=PublishStatus.FAILED,
-            error="Not implemented",
+            error=_NOT_IMPLEMENTED_MSG,
         )
 
     async def health_check(self) -> bool:
