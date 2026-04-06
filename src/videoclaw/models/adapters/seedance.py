@@ -129,8 +129,11 @@ def _get_seedance_cost_per_sec() -> float:
     from videoclaw.models.router import get_price_usd_per_sec
     return get_price_usd_per_sec("seedance-2.0")
 
-# Polling configuration
-_POLL_INTERVAL_S = 10.0
+# Polling configuration — exponential backoff: 5s→7.5s→11s→…→30s (cap)
+_POLL_BACKOFF_BASE = 5.0      # initial interval (seconds)
+_POLL_BACKOFF_FACTOR = 1.5    # multiplier per attempt
+_POLL_MAX_INTERVAL = 30.0     # cap (seconds)
+_POLL_INTERVAL_S = 10.0       # legacy constant kept for backwards compat
 _POLL_TIMEOUT_S = 6000.0  # 100 minutes max
 _HTTP_TIMEOUT_S = 120.0
 
@@ -498,10 +501,13 @@ class SeedanceVideoAdapter:
         yield ProgressEvent(progress=0.1, stage="task_created")
 
         elapsed = 0.0
+        attempt = 0
         video_url: str | None = None
         while elapsed < _POLL_TIMEOUT_S:
-            await asyncio.sleep(_POLL_INTERVAL_S)
-            elapsed += _POLL_INTERVAL_S
+            interval = min(_POLL_BACKOFF_BASE * (_POLL_BACKOFF_FACTOR ** attempt), _POLL_MAX_INTERVAL)
+            await asyncio.sleep(interval)
+            elapsed += interval
+            attempt += 1
 
             status, video_url = await self._check_task(task_id)
 
@@ -952,9 +958,12 @@ class SeedanceVideoAdapter:
     async def _poll_until_done(self, task_id: str) -> str:
         """Poll task status until completion, returning the video URL."""
         elapsed = 0.0
+        attempt = 0
         while elapsed < _POLL_TIMEOUT_S:
-            await asyncio.sleep(_POLL_INTERVAL_S)
-            elapsed += _POLL_INTERVAL_S
+            interval = min(_POLL_BACKOFF_BASE * (_POLL_BACKOFF_FACTOR ** attempt), _POLL_MAX_INTERVAL)
+            await asyncio.sleep(interval)
+            elapsed += interval
+            attempt += 1
 
             status, video_url = await self._check_task(task_id)
 
@@ -971,8 +980,8 @@ class SeedanceVideoAdapter:
                 )
 
             logger.info(
-                "[seedance] Task %s: %s (%.0fs elapsed)",
-                task_id, status, elapsed,
+                "[seedance] Task %s: %s (%.0fs elapsed, next poll in %.0fs)",
+                task_id, status, elapsed, min(_POLL_BACKOFF_BASE * (_POLL_BACKOFF_FACTOR ** attempt), _POLL_MAX_INTERVAL),
             )
 
         raise TimeoutError(
