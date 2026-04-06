@@ -8,6 +8,7 @@ point for the rest of the pipeline.
 
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
 from pathlib import Path
@@ -486,8 +487,6 @@ class WaveSpeedTTSProvider:
 
             # Poll for completion
             result_url = self.RESULT_URL.format(request_id=request_id)
-            import asyncio
-
             elapsed = 0.0
             while elapsed < self._timeout:
                 await asyncio.sleep(self._poll_interval)
@@ -660,56 +659,47 @@ class TTSManager:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        segments: list[AudioSegment] = []
+        sem = asyncio.Semaphore(5)
 
-        for i, line in enumerate(lines):
+        async def _synth_one(i: int, line: DialogueLine) -> AudioSegment | None:
             if not line.text.strip():
-                continue
+                return None
 
             speaker = line.speaker
             profile = voice_map.get(speaker) or voice_map.get("narrator")
             if profile is None:
-                # Last-resort fallback: default VoiceProfile
                 profile = VoiceProfile()
 
-            # Resolve scene emotion → WaveSpeed params (with deltas)
             emotion_hint = line.emotion_hint or ""
             resolved = resolve_emotion(emotion_hint, profile)
-
-            # Apply text-driven prosody adjustments
             prosody = analyze_text_prosody(line.text)
             final_speed = resolved.speed + prosody.speed_adjust
             final_pitch = resolved.pitch + prosody.pitch_adjust
             final_volume = resolved.volume + prosody.volume_adjust
 
-            # Synthesize audio
-            if isinstance(self._provider, WaveSpeedTTSProvider):
-                audio_data = await self._provider.synthesize(
-                    text=line.text,
-                    voice=profile.voice_id,
-                    language=language,
-                    speed=final_speed,
-                    pitch=final_pitch,
-                    emotion=resolved.emotion,
-                    volume=final_volume,
-                )
-            else:
-                audio_data = await self._provider.synthesize(
-                    text=line.text,
-                    voice=profile.voice_id,
-                    language=language,
-                )
+            async with sem:
+                if isinstance(self._provider, WaveSpeedTTSProvider):
+                    audio_data = await self._provider.synthesize(
+                        text=line.text,
+                        voice=profile.voice_id,
+                        language=language,
+                        speed=final_speed,
+                        pitch=final_pitch,
+                        emotion=resolved.emotion,
+                        volume=final_volume,
+                    )
+                else:
+                    audio_data = await self._provider.synthesize(
+                        text=line.text,
+                        voice=profile.voice_id,
+                        language=language,
+                    )
 
-            # Write audio file
             audio_path = output_dir / f"line_{i:04d}_{speaker}.mp3"
             audio_path.write_bytes(audio_data)
 
-            # Map LineType to AudioType
-            audio_type = self._LINE_TYPE_TO_AUDIO_TYPE.get(
-                line.line_type, AudioType.DIALOGUE,
-            )
-
-            segment = AudioSegment(
+            audio_type = self._LINE_TYPE_TO_AUDIO_TYPE.get(line.line_type, AudioType.DIALOGUE)
+            return AudioSegment(
                 scene_id=line.scene_id,
                 audio_type=audio_type,
                 text=line.text,
@@ -717,7 +707,9 @@ class TTSManager:
                 audio_path=str(audio_path),
                 line_type=line.line_type,
             )
-            segments.append(segment)
+
+        results = await asyncio.gather(*[_synth_one(i, line) for i, line in enumerate(lines)])
+        segments = [seg for seg in results if seg is not None]
 
         logger.info(
             "generate_multi_role: produced %d segments from %d lines",
