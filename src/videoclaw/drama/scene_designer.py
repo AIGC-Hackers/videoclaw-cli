@@ -315,7 +315,7 @@ class SceneDesigner:
             for loc in locations:
                 if loc.reference_image:
                     series.consistency_manifest.scene_references[loc.name] = loc.reference_image
-        self._drama_mgr.save(series)
+        await self._drama_mgr.save_async(series)
 
         logger.info("Scene designs saved for series %s (%d locations)",
                      series.series_id, len(locations))
@@ -373,7 +373,7 @@ class SceneDesigner:
             for prop in props:
                 if prop.reference_image:
                     series.consistency_manifest.prop_references[prop.name] = prop.reference_image
-        self._drama_mgr.save(series)
+        await self._drama_mgr.save_async(series)
 
         logger.info("Prop designs saved for series %s (%d props)",
                      series.series_id, len(props))

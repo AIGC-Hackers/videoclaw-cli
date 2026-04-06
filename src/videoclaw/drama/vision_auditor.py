@@ -908,7 +908,7 @@ class VisionAuditor:
 
         # Save updated series state
         if persist_results and drama_manager is not None:
-            drama_manager.save(series)
+            await drama_manager.save_async(series)
             logger.info("Audit results persisted to series %s", series.series_id)
 
         return report

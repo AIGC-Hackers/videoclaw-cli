@@ -247,7 +247,7 @@ class CharacterDesigner:
 
         await asyncio.gather(*[_gen_one(c) for c in series.characters])
 
-        self._drama_mgr.save(series)
+        await self._drama_mgr.save_async(series)
         logger.info("Character designs saved for series %s", series.series_id)
         return series
 
@@ -426,7 +426,7 @@ class CharacterDesigner:
 
         await asyncio.gather(*[_refresh_one(c) for c in series.characters])
 
-        self._drama_mgr.save(series)
+        await self._drama_mgr.save_async(series)
         logger.info(
             "URL refresh complete: %d/%d characters have URLs",
             sum(1 for v in refreshed.values() if v),
