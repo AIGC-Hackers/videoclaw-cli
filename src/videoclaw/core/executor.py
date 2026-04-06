@@ -862,13 +862,14 @@ class DAGExecutor:
             from videoclaw.generation.audio.audio_post import AudioPostProcessor
 
             post = AudioPostProcessor()
-            for seg in segments:
+
+            async def _post_one(seg) -> None:  # type: ignore[no-untyped-def]
                 if seg.audio_path and Path(seg.audio_path).exists():
                     processed_path = audio_dir / f"{seg.segment_id}_post.mp3"
-                    await post.process(
-                        Path(seg.audio_path), processed_path, seg.line_type,
-                    )
+                    await post.process(Path(seg.audio_path), processed_path, seg.line_type)
                     seg.audio_path = str(processed_path)
+
+            await asyncio.gather(*[_post_one(seg) for seg in segments])
         except (RuntimeError, OSError) as exc:
             logger.warning(
                 "[per_scene_tts] Audio post-processing failed for scene %s: %s",
