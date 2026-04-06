@@ -13,8 +13,6 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-import litellm
-
 from videoclaw.config import get_config
 
 logger = logging.getLogger(__name__)
@@ -246,6 +244,7 @@ class LLMClient:
             max_tokens or "default",
         )
 
+        import litellm  # deferred — 4.8s load paid on first LLM call, not at import time
         response = await litellm.acompletion(**kwargs)
 
         # Track usage.
@@ -332,6 +331,7 @@ class LLMClient:
             resolved_model, len(messages), use_stream,
         )
 
+        import litellm  # deferred — 4.8s load paid on first LLM call, not at import time
         if use_stream:
             kwargs["stream"] = True
             kwargs["stream_options"] = {"include_usage": True}
