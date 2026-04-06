@@ -11,16 +11,6 @@ import typer
 if TYPE_CHECKING:
     from videoclaw.drama.models import DramaManager, DramaSeries, Episode
 
-from rich.panel import Panel
-from rich.progress import (
-    BarColumn,
-    Progress,
-    SpinnerColumn,
-    TaskProgressColumn,
-    TextColumn,
-    TimeElapsedColumn,
-)
-
 from videoclaw.cli._app import (
     configure_logging,
     drama_app,
@@ -259,6 +249,7 @@ def drama_run(
     out = get_output()
     out._command = "drama.run"
 
+    from rich.panel import Panel  # deferred — rich.panel costs ~87ms at startup
     from videoclaw.drama.models import DramaManager
 
     mgr = DramaManager()
@@ -348,6 +339,9 @@ async def _drama_run_async(
 ) -> None:
     console = get_console()
 
+    from rich.progress import (  # deferred — rich.progress costs ~87ms at startup
+        BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeElapsedColumn,
+    )
     from videoclaw.drama.planner import DramaPlanner
     from videoclaw.drama.runner import DramaRunner
 
@@ -544,6 +538,7 @@ def drama_regen_shot(
     out = get_output()
     out._command = "drama.regen-shot"
 
+    from rich.panel import Panel  # deferred — already cached if drama run was called before
     from videoclaw.drama.models import DramaManager
 
     mgr = DramaManager()
@@ -616,6 +611,9 @@ async def _drama_regen_shot_async(
 ) -> None:
     console = get_console()
 
+    from rich.progress import (  # deferred — already cached after first drama run
+        BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeElapsedColumn,
+    )
     from videoclaw.drama.runner import DramaRunner
 
     runner = DramaRunner(drama_manager=mgr)
