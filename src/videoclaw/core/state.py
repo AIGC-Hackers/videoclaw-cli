@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -175,8 +176,6 @@ class StateManager:
 
     async def save_async(self, state: ProjectState) -> Path:
         """Async variant — offloads disk I/O to a thread to avoid blocking the event loop."""
-        import asyncio
-
         return await asyncio.to_thread(self.save, state)
 
     def load(self, project_id: str) -> ProjectState:

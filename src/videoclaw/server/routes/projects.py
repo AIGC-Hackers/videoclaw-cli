@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -134,8 +135,6 @@ async def stream_project_cost(project_id: str) -> StreamingResponse:
 
 @router.delete("/{project_id}")
 async def delete_project(project_id: str) -> dict:
-    import shutil
-
     project_dir = _state_mgr.projects_dir / project_id
     if not project_dir.exists():
         raise HTTPException(status_code=404, detail="Project not found")

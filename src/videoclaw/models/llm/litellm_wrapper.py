@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -365,7 +366,6 @@ class LLMClient:
                     len(reasoning_text),
                 )
                 # Try to find JSON in reasoning output
-                import re
                 json_match = re.search(r"```(?:json)?\s*\n([\s\S]*?)\n```", reasoning_text)
                 if json_match:
                     content = json_match.group(1).strip()

@@ -93,7 +93,7 @@ class ModelRegistry:
                     continue  # already registered
                 self.register(adapter)
                 logger.info("Discovered adapter %r from entry point %r", adapter.model_id, ep.name)
-            except Exception:
+            except (ImportError, AttributeError, TypeError):
                 logger.exception(
                     "Failed to load adapter from entry point %r", ep.name
                 )
@@ -109,9 +109,9 @@ class ModelRegistry:
         async def _check(adapter: VideoModelAdapter) -> tuple[str, bool]:
             try:
                 healthy = await adapter.health_check()
-            except Exception:
+            except (OSError, RuntimeError, asyncio.TimeoutError) as exc:
                 logger.warning(
-                    "Health check raised for %r", adapter.model_id, exc_info=True
+                    "Health check raised for %r: %s", adapter.model_id, exc
                 )
                 healthy = False
             return adapter.model_id, healthy
