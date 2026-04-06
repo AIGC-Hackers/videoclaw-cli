@@ -25,6 +25,7 @@ API reference: https://developers.google.com/youtube/v3/guides/uploading_a_video
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -251,7 +252,7 @@ class YouTubePublisher:
         with video_path.open("rb") as fh:
             offset = 0
             while offset < video_size:
-                chunk = fh.read(chunk_size)
+                chunk = await asyncio.to_thread(fh.read, chunk_size)
                 end = offset + len(chunk) - 1
 
                 resp = await client.put(

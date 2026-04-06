@@ -17,6 +17,7 @@ API reference: https://developers.tiktok.com/doc/content-posting-api-get-started
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from pathlib import Path
@@ -236,7 +237,7 @@ class TikTokPublisher:
         with video_path.open("rb") as fh:
             offset = 0
             while offset < video_size:
-                chunk = fh.read(chunk_size)
+                chunk = await asyncio.to_thread(fh.read, chunk_size)
                 end = offset + len(chunk) - 1
                 await client.put(
                     upload_url,
