@@ -525,9 +525,10 @@ async def _storyboard_async(
     # Optionally save to JSON
     if output_path:
         out_path = Path(output_path)
-        out_path.write_text(
+        await asyncio.to_thread(
+            out_path.write_text,
             json.dumps({"prompt": prompt, "shots": shots_data}, indent=2, ensure_ascii=False),
-            encoding="utf-8",
+            "utf-8",
         )
         console.print(f"[bold green]Storyboard saved:[/bold green] {out_path}")
 

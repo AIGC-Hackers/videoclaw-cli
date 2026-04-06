@@ -447,9 +447,10 @@ async def _drama_run_async(
                 "enhanced_prompt": sc.enhanced_visual_prompt,
             })
 
-        archive_path.write_text(
+        await asyncio.to_thread(
+            archive_path.write_text,
             _json.dumps(archive_data, indent=2, ensure_ascii=False),
-            encoding="utf-8",
+            "utf-8",
         )
         console.print(f"[dim]Prompts archived: {archive_path}[/dim]")
 
