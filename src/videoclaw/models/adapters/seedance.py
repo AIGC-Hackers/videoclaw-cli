@@ -431,6 +431,15 @@ class SeedanceVideoAdapter:
             or config.ark_api_key
         )
         self._base_url = (base_url or config.seedance_base_url or _DEFAULT_BASE_URL).rstrip("/")
+        # Shared AsyncClient — created lazily, reused across all requests to
+        # avoid per-request TCP connection overhead (~70ms per request).
+        self._http_client: httpx.AsyncClient | None = None
+
+    def _client(self) -> httpx.AsyncClient:
+        """Return the shared HTTP client, creating it on first call."""
+        if self._http_client is None:
+            self._http_client = httpx.AsyncClient(timeout=_HTTP_TIMEOUT_S)
+        return self._http_client
 
     # ------------------------------------------------------------------
     # Protocol properties
@@ -871,40 +880,40 @@ class SeedanceVideoAdapter:
 
         max_retries = get_config().max_retries
         for attempt in range(max_retries):
-            async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_S) as client:
-                resp = await client.post(
-                    f"{self._base_url}/api/v1/doubao/create",
-                    headers=self._auth_headers(),
-                    json=payload,
+            client = self._client()
+            resp = await client.post(
+                f"{self._base_url}/api/v1/doubao/create",
+                headers=self._auth_headers(),
+                json=payload,
+            )
+
+            if resp.status_code == 429:
+                wait = min(15.0 * (attempt + 1), 60.0)
+                logger.warning(
+                    "[seedance] Rate limited (429), waiting %.0fs before retry %d/%d",
+                    wait, attempt + 1, max_retries,
+                )
+                await asyncio.sleep(wait)
+                continue
+
+            if resp.status_code != 200:
+                logger.error(
+                    "[seedance] Task creation failed %d: %s",
+                    resp.status_code,
+                    resp.text[:500],
+                )
+                resp.raise_for_status()
+
+            data = resp.json()
+            task_id = data.get("id") or data.get("task_id")
+
+            if not task_id:
+                raise RuntimeError(
+                    f"No task_id in Seedance response: {data}"
                 )
 
-                if resp.status_code == 429:
-                    wait = min(15.0 * (attempt + 1), 60.0)
-                    logger.warning(
-                        "[seedance] Rate limited (429), waiting %.0fs before retry %d/%d",
-                        wait, attempt + 1, max_retries,
-                    )
-                    await asyncio.sleep(wait)
-                    continue
-
-                if resp.status_code != 200:
-                    logger.error(
-                        "[seedance] Task creation failed %d: %s",
-                        resp.status_code,
-                        resp.text[:500],
-                    )
-                    resp.raise_for_status()
-
-                data = resp.json()
-                task_id = data.get("id") or data.get("task_id")
-
-                if not task_id:
-                    raise RuntimeError(
-                        f"No task_id in Seedance response: {data}"
-                    )
-
-                logger.info("[seedance] Created task %s", task_id)
-                return task_id
+            logger.info("[seedance] Created task %s", task_id)
+            return task_id
 
         raise RuntimeError("Seedance task creation failed: rate limited after all retries")
 
@@ -916,14 +925,14 @@ class SeedanceVideoAdapter:
         Returns ``(status, video_url | None)`` where status is one of
         ``"processing"``, ``"done"``, or ``"failed"``.
         """
-        async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_S) as client:
-            resp = await client.post(
-                f"{self._base_url}/api/v1/doubao/get_result",
-                headers=self._auth_headers(),
-                json={"id": task_id},
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        client = self._client()
+        resp = await client.post(
+            f"{self._base_url}/api/v1/doubao/get_result",
+            headers=self._auth_headers(),
+            json={"id": task_id},
+        )
+        resp.raise_for_status()
+        data = resp.json()
 
         raw_status = (data.get("status") or "").lower()
 
@@ -1002,12 +1011,10 @@ class SeedanceVideoAdapter:
 
     async def _download_video(self, url: str) -> bytes:
         """Download video bytes from URL."""
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(120.0),
-        ) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            return resp.content
+        client = self._client()
+        resp = await client.get(url)
+        resp.raise_for_status()
+        return resp.content
 
     @staticmethod
     def _estimate_cost_for(request: GenerationRequest) -> float:

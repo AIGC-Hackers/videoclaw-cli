@@ -371,11 +371,10 @@ class VideoComposer:
                     f"video_paths length ({len(video_paths)})"
                 )
             if clip_durations is None:
-                durations = []
-                for vp in video_paths:
-                    dur = await get_video_duration(vp)
-                    durations.append(dur)
-                clip_durations = durations
+                import asyncio as _asyncio
+                clip_durations = list(
+                    await _asyncio.gather(*[get_video_duration(vp) for vp in video_paths])
+                )
 
             cmd = self._build_concat_cmd(
                 video_paths, output_path, resolved, transition_duration,
