@@ -637,7 +637,9 @@ class DAGExecutor:
             session_tag = state.metadata.get("session", "")
             prefix = f"session{session_tag}_" if session_tag else ""
             output_path = output_dir / f"{prefix}{shot_id}_{video_hash}.mp4"
-            output_path.write_bytes(result.video_data)
+            # write_bytes blocks the event loop for large video files (5-50 MB);
+            # offload to thread pool so other tasks can progress concurrently.
+            await asyncio.to_thread(output_path.write_bytes, result.video_data)
             shot.asset_path = str(output_path)
             logger.info("[video_gen] Saved video to %s", output_path)
 
@@ -1252,7 +1254,7 @@ class DAGExecutor:
                 output_path=output_path,
             )
         else:
-            shutil.copy2(composed_path, output_path)
+            await asyncio.to_thread(shutil.copy2, composed_path, output_path)
 
         state.assets["composed_video"] = str(output_path)
         logger.info("[compose] Final composed video -> %s", output_path)
@@ -1307,7 +1309,7 @@ class DAGExecutor:
             logger.warning(
                 "[render] FFmpeg render failed (%s), falling back to file copy", exc,
             )
-            shutil.copy2(composed, output_path)
+            await asyncio.to_thread(shutil.copy2, composed, output_path)
 
         state.assets["final_video"] = str(output_path)
         logger.info("[render] Final video -> %s", output_path)
