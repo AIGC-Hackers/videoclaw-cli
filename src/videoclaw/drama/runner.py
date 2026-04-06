@@ -1057,7 +1057,7 @@ class DramaRunner:
         state: ProjectState
         if episode.project_id:
             try:
-                state = self.state_mgr.load(episode.project_id)
+                state = await self.state_mgr.load_async(episode.project_id)
             except FileNotFoundError:
                 _, state = build_episode_dag(episode, series)
         else:

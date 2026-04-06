@@ -178,6 +178,10 @@ class StateManager:
         """Async variant — offloads disk I/O to a thread to avoid blocking the event loop."""
         return await asyncio.to_thread(self.save, state)
 
+    async def load_async(self, project_id: str) -> ProjectState:
+        """Async variant of :meth:`load` — offloads disk read to a thread."""
+        return await asyncio.to_thread(self.load, project_id)
+
     def load(self, project_id: str) -> ProjectState:
         """Load a project's state from disk.
 
