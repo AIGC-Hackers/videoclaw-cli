@@ -7,6 +7,7 @@ subtitle overlay, and a one-call ``render_final`` pipeline.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -114,28 +115,29 @@ async def align_clips(
     misaligned: list[str] = []
     invalid: list[str] = []
 
-    for i, (vp, scene) in enumerate(zip(video_paths, scenes)):
-        scene_id = scene.get("scene_id", f"scene_{i}")
-        scripted = float(scene.get("duration_seconds", 0.0))
-        transition = scene.get("transition", "") or ""
-
-        # Probe duration and validate integrity
-        has_video = True
-        integrity_error: str | None = None
+    async def _probe(vp: Path) -> tuple[float, bool, str | None]:
+        """Probe a single clip; returns (actual_duration, has_video, integrity_error)."""
         try:
             info = await get_video_info(vp)
             actual = float(info.get("format", {}).get("duration", 0))
-            # Check for video stream
             streams = info.get("streams", [])
             has_video = any(s.get("codec_type") == "video" for s in streams)
             if not has_video:
-                integrity_error = "no video stream"
-            elif actual <= 0:
-                integrity_error = f"invalid duration ({actual}s)"
+                return actual, False, "no video stream"
+            if actual <= 0:
+                return actual, True, f"invalid duration ({actual}s)"
+            return actual, True, None
         except (RuntimeError, OSError, ValueError) as exc:
-            actual = 0.0
-            has_video = False
-            integrity_error = str(exc)
+            return 0.0, False, str(exc)
+
+    probe_results = await asyncio.gather(*[_probe(vp) for vp in video_paths])
+
+    for i, (vp, scene, (actual, has_video, integrity_error)) in enumerate(
+        zip(video_paths, scenes, probe_results)
+    ):
+        scene_id = scene.get("scene_id", f"scene_{i}")
+        scripted = float(scene.get("duration_seconds", 0.0))
+        transition = scene.get("transition", "") or ""
 
         clip = AlignedClip(
             scene_id=scene_id,
