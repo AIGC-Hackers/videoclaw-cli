@@ -119,7 +119,7 @@ MOCK_EPISODE_SCRIPTS = {
                 "shot_type": "establishing",
                 "emotion": "tense",
                 "characters_present": ["Sarah"],
-                "transition": "fade_in",
+                "transition": "cut",
             },
             {
                 "scene_id": "ep01_s02",
@@ -331,7 +331,7 @@ MOCK_EPISODE_SCRIPTS = {
                 "shot_type": "reaction",
                 "emotion": "revelation",
                 "characters_present": ["Sarah"],
-                "transition": "fade_out",
+                "transition": "cut",
             },
         ],
         "voice_over": {
@@ -382,7 +382,7 @@ async def test_e2e_western_full_pipeline(tmp_path):
                         "shot_type": "establishing",
                         "emotion": "tense",
                         "characters_present": [],
-                        "transition": "fade_in",
+                        "transition": "cut",
                     },
                     {
                         "scene_id": f"ep{ep_num:02d}_s02",
@@ -427,7 +427,7 @@ async def test_e2e_western_full_pipeline(tmp_path):
                         "shot_type": "detail",
                         "emotion": "revelation",
                         "characters_present": ["Sarah"],
-                        "transition": "fade_out",
+                        "transition": "cut",
                     },
                 ],
                 "voice_over": {

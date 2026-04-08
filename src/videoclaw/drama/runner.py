@@ -325,6 +325,20 @@ def build_episode_dag(
     )
     episode.project_id = state.project_id
 
+    # ---- Pre-production gate: check prerequisites before generation ----
+    from videoclaw.drama.pre_production_gate import check_pre_production_gate
+
+    gate_result = check_pre_production_gate(
+        series, episode, strict=get_config().quality_gate_strict,
+    )
+    if not gate_result.passed:
+        logger.warning(
+            "Pre-production gate: %d/%d checks failed for episode %d",
+            sum(1 for i in gate_result.items if not i.passed),
+            len(gate_result.items),
+            episode.number,
+        )
+
     # ---- Quality gate: validate before committing to expensive generation ----
     from videoclaw.drama.quality import DramaQualityValidator
 

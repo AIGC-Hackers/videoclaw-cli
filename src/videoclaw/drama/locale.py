@@ -447,12 +447,44 @@ TikTok / YouTube Shorts / Instagram Reels (9:16 vertical video, 50-90 seconds).
 - SFX serves pacing: sharp/sudden for tension, ambient white-noise for warmth.
 - Leave sfx blank for silent reaction shots.
 
+# Forbidden Compositions (NEVER use these)
+- Empty establishing shots with no character focus
+- Slow motion or speed ramping of any kind
+- Character thinking / staring blankly into space
+- Character with back to camera (unless a specific reveal moment)
+- Wide landscape without a character in the foreground
+
 # Transition Toolkit
-- cut (hard cut): default — fast pace, tension, action sequences
+- cut (hard cut): default — fast pace, tension, action sequences. USE THIS BY DEFAULT.
 - dissolve: time lapse, memory flashback, tender mood shift
-- fade_in / fade_out: episode open/close, major emotional pivot
 - match_cut: creative bridge between two visually similar images
 - jump_cut: time compression within a scene, urgency
+- FORBIDDEN: fade_in, fade_out, flash, strobe — these break immersion on mobile
+
+# 4-Act Micro-Structure (MANDATORY for every episode)
+Every episode MUST follow this four-act structure with timecodes:
+- ACT 1 (act_1) — Hook (0-15s): REVERSAL #1. Cold open — no setup, no narration, no context.
+  Drama begins at frame 1. Maximum shock, tension, or spectacle.
+- ACT 2 (act_2) — Escalation (15-35s): REVERSAL #2. Conflict intensifies.
+  A secret is exposed, a betrayal lands, or the threat doubles.
+- ACT 3 (act_3) — Peak (35-55s): REVERSAL #3. Emotional or power climax.
+  The most visually spectacular moment of the episode.
+- ACT 4 (act_4) — Hook Out (55-90s): Zero resolution. Episode ends mid-tension,
+  on an unanswered question, or a visual shock cut.
+
+# Reversals (minimum 3 per episode)
+A reversal = audience expectation EXPLICITLY overturned.
+Examples: ally revealed as enemy, powerless character shows strength, secret changes everything.
+Vague emotional shifts do NOT count as reversals.
+Tag reversal scenes with is_reversal=true and describe each reversal.
+
+# Scene Function Mandate (NO FILLER)
+Every scene MUST serve exactly ONE of:
+  (A) escalate — intensify the conflict
+  (B) reveal — expose new information or betrayal
+  (C) emotional_peak — trigger maximum emotional response
+No filler dialogue. No transitional small talk. No breathing room between confrontations.
+If a scene serves none of these functions, it must be cut.
 
 # Pacing Rules (Seedance 2.0 hard constraint: 5-15s per shot)
 - Scene count: **6-12 shots** per episode (50-90s). Hard ceiling: NEVER exceed 15 shots.
@@ -528,7 +560,7 @@ Output JSON schema:
       "scene_id": "<e.g. ep01_s01>",
       "description": "<English scene description: who, where, what, emotional state>",
       "visual_prompt": "<EN — [setting]+[character]+[action]+[lighting]>",
-      "camera_movement": "<static|pan_left|pan_right|dolly_in|tracking|crane_up|handheld>",
+      "camera_movement": "<static|pan_left|pan_right|dolly_in|tracking|crane_up|handheld|orbit|tilt_up|dolly_zoom|whip_pan|pull_back>",
       "duration_seconds": <float>,
       "dialogue": "<English character line — punchy, natural, max 25 words. Empty string if none.>",
       "dialogue_line_type": "<dialogue|inner_monologue — leave empty if no dialogue>",
@@ -538,8 +570,12 @@ Output JSON schema:
       "shot_type": "<establishing | reaction | action | detail | pov>",
       "emotion": "<precise term from emotion vocabulary above>",
       "characters_present": ["<list of character names visible in this scene>"],
-      "transition": "<cut | dissolve | fade_in | fade_out | wipe | match_cut | jump_cut>",
-      "sfx": "<key sound effect, e.g. door slam. Empty if none.>"
+      "transition": "<cut | dissolve | match_cut | jump_cut>",
+      "sfx": "<key sound effect, e.g. door slam. Empty if none.>",
+      "act_number": "<act_1|act_2|act_3|act_4 — which act this scene belongs to>",
+      "is_reversal": <boolean — true if this scene overturns audience expectation>,
+      "reversal_description": "<if is_reversal: 1-sentence description of the reversal. Empty string if not.>",
+      "scene_function": "<escalate|reveal|emotional_peak — mandatory, every scene must serve one>"
     }
   ],
   "voice_over": {

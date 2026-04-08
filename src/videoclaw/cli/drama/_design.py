@@ -1,14 +1,15 @@
-"""``design-characters``, ``refresh-urls``, ``design-scenes``, ``assign-voices``."""
+"""``design-characters``, ``refresh-urls``, ``design-scenes``, ``assign-voices``, ``design-cover``."""
 
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
 import typer
 
 if TYPE_CHECKING:
-    from videoclaw.drama.models import DramaManager, DramaSeries
+    from videoclaw.drama.models import DramaManager, DramaSeries, Episode
 
 from rich.panel import Panel
 from rich.table import Table
@@ -382,3 +383,83 @@ def drama_assign_voices(
 
     out.set_result({"series_id": series_id, "voices": voices_data})
     out.emit()
+
+
+# ---------------------------------------------------------------------------
+# claw drama design-cover
+# ---------------------------------------------------------------------------
+
+@drama_app.command("design-cover")
+def drama_design_cover(
+    series_id: Annotated[str, typer.Argument(help="Drama series ID.")],
+    episode: Annotated[
+        int, typer.Option("--episode", "-e", help="Episode number.")
+    ] = 1,
+    force: Annotated[
+        bool, typer.Option("--force", "-f", help="Regenerate existing cover.")
+    ] = False,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """Generate a cover frame (TikTok thumbnail) for an episode."""
+    configure_logging(verbose)
+    console = get_console()
+    out = get_output()
+    out._command = "drama.design-cover"
+
+    from videoclaw.drama.models import DramaManager
+
+    mgr = DramaManager()
+    try:
+        series = mgr.load(series_id)
+    except FileNotFoundError:
+        console.print(f"[red]Series {series_id!r} not found.[/red]")
+        out.set_error(f"Series {series_id!r} not found.")
+        out.emit()
+        raise typer.Exit(code=1)
+
+    ep = next((e for e in series.episodes if e.number == episode), None)
+    if not ep:
+        console.print(f"[red]Episode {episode} not found in series {series_id!r}.[/red]")
+        out.set_error(f"Episode {episode} not found.")
+        out.emit()
+        raise typer.Exit(code=1)
+
+    console.print(
+        Panel(
+            f"[bold]Series:[/bold]  {series.title}\n"
+            f"[bold]Episode:[/bold] EP{episode:02d} — {ep.title}\n"
+            f"[bold]Force:[/bold]   {force}",
+            title="[bold cyan]Cover Frame Generation[/bold cyan]",
+            border_style="cyan",
+        )
+    )
+
+    try:
+        path = asyncio.run(_design_cover_async(series, ep, mgr, force))
+    except Exception as exc:
+        out.set_error(str(exc))
+        out.emit()
+        raise typer.Exit(code=1)
+
+    console.print(f"\n[bold green]Cover frame saved: {path}[/bold green]")
+    out.set_result({
+        "series_id": series.series_id,
+        "episode": episode,
+        "cover_frame_path": str(path),
+    })
+    out.emit()
+
+
+async def _design_cover_async(
+    series: DramaSeries, ep: Episode, mgr: DramaManager, force: bool,
+) -> Path:
+    console = get_console()
+
+    from videoclaw.drama.cover_frame import CoverFrameGenerator
+
+    gen = CoverFrameGenerator(drama_manager=mgr)
+
+    with console.status("[cyan]Generating cover frame...", spinner="dots"):
+        path = await gen.generate_cover(series, ep, force=force)
+
+    return path

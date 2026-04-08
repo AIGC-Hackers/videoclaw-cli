@@ -85,7 +85,7 @@ def _make_western_episode_scripts(
             "shot_type": "detail",
             "emotion": "shock",
             "characters_present": ["Elena Cross"],
-            "transition": "fade_in",
+            "transition": "cut",
         },
         # Scene 2 — emotional peak
         {
@@ -497,3 +497,196 @@ class TestDramaQualityValidator:
         # Should not raise; uses zh validator
         violations = validator.validate(series, scripts)
         assert isinstance(violations, list)
+
+
+# ===========================================================================
+# Forbidden composition tests (checks 12-16)
+# ===========================================================================
+
+class TestForbiddenComposition:
+
+    def test_forbidden_fade_transition_fires(self):
+        scripts = _make_western_episode_scripts()
+        scripts[1]["scenes"][0]["transition"] = "fade_in"
+        violations = validate_western_quality(_make_western_series(), scripts)
+        assert any("forbidden transition" in v for v in violations), violations
+
+    def test_allowed_transition_passes(self):
+        scripts = _make_western_episode_scripts()
+        # All transitions are "cut" in the fixture
+        violations = validate_western_quality(_make_western_series(), scripts)
+        assert not any("forbidden transition" in v for v in violations), violations
+
+    def test_empty_establishing_shot_fires(self):
+        scripts = _make_western_episode_scripts()
+        scripts[1]["scenes"][3]["shot_scale"] = "wide"
+        scripts[1]["scenes"][3]["characters_present"] = []
+        scripts[1]["scenes"][3]["visual_prompt"] = "Wide aerial shot of city skyline at dusk"
+        violations = validate_western_quality(_make_western_series(), scripts)
+        assert any("wide shot with no character" in v for v in violations), violations
+
+    def test_wide_shot_with_characters_passes(self):
+        scripts = _make_western_episode_scripts()
+        scripts[1]["scenes"][3]["shot_scale"] = "wide"
+        scripts[1]["scenes"][3]["characters_present"] = ["Elena Cross"]
+        violations = validate_western_quality(_make_western_series(), scripts)
+        assert not any("wide shot with no character" in v for v in violations), violations
+
+    def test_slow_motion_fires(self):
+        scripts = _make_western_episode_scripts()
+        scripts[1]["scenes"][1]["description"] = "Elena punches in slow motion"
+        violations = validate_western_quality(_make_western_series(), scripts)
+        assert any("slow motion" in v for v in violations), violations
+
+    def test_blank_stare_fires(self):
+        scripts = _make_western_episode_scripts()
+        scripts[1]["scenes"][2]["description"] = "Elena stares blankly at the wall"
+        violations = validate_western_quality(_make_western_series(), scripts)
+        assert any("passive shot" in v for v in violations), violations
+
+    def test_back_to_camera_fires(self):
+        scripts = _make_western_episode_scripts()
+        scripts[1]["scenes"][1]["visual_prompt"] = "Man with back to camera, looking out window"
+        violations = validate_western_quality(_make_western_series(), scripts)
+        assert any("back to camera" in v for v in violations), violations
+
+    def test_back_to_camera_reveal_passes(self):
+        scripts = _make_western_episode_scripts()
+        scripts[1]["scenes"][1]["visual_prompt"] = "Man with back to camera, turns around"
+        scripts[1]["scenes"][1]["description"] = "Dramatic reveal of villain's face"
+        violations = validate_western_quality(_make_western_series(), scripts)
+        assert not any("back to camera" in v for v in violations), violations
+
+
+# ===========================================================================
+# 4-Act structure tests (check 17)
+# ===========================================================================
+
+class TestActStructure:
+
+    @staticmethod
+    def _scripts_with_acts():
+        """Build scripts with proper 4-act tagging and timing."""
+        scripts = _make_western_episode_scripts()
+        scenes = scripts[1]["scenes"]
+        # Assign acts: s01=act_1(4s), s02=act_2(8s), s03=act_3(5s), s04=act_4(3s)
+        # Cumulative: act_1 starts @0, act_2 @4 (need ~15±5 → 4 is outside tolerance)
+        # Adjust durations to match act boundaries:
+        # act_1: 0-15s → 2 scenes × 7s = 14s
+        # act_2: 15-35s → 1 scene × 18s = 18s (cum=32s)
+        # act_3: 35-55s → not enough scenes... let's just use 4 scenes with tuned durations
+        scenes[0]["act_number"] = "act_1"
+        scenes[0]["duration_seconds"] = 13.0
+        scenes[1]["act_number"] = "act_2"
+        scenes[1]["duration_seconds"] = 20.0
+        scenes[2]["act_number"] = "act_3"
+        scenes[2]["duration_seconds"] = 20.0
+        scenes[3]["act_number"] = "act_4"
+        scenes[3]["duration_seconds"] = 10.0
+        return scripts
+
+    def test_valid_4act_passes(self):
+        scripts = self._scripts_with_acts()
+        violations = validate_western_quality(_make_western_series(), scripts)
+        assert not any("act" in v.lower() and ("missing" in v.lower() or "order" in v.lower())
+                       for v in violations), violations
+
+    def test_missing_act_fires(self):
+        scripts = self._scripts_with_acts()
+        # Remove act_3 tag
+        scripts[1]["scenes"][2]["act_number"] = ""
+        violations = validate_western_quality(_make_western_series(), scripts)
+        assert any("missing act_3" in v for v in violations), violations
+
+    def test_act_order_violation_fires(self):
+        scripts = self._scripts_with_acts()
+        # Swap act_2 and act_3
+        scripts[1]["scenes"][1]["act_number"] = "act_3"
+        scripts[1]["scenes"][2]["act_number"] = "act_2"
+        violations = validate_western_quality(_make_western_series(), scripts)
+        assert any("act order" in v.lower() for v in violations), violations
+
+    def test_no_act_tags_skips_check(self):
+        """Legacy scripts without act_number should not trigger violations."""
+        scripts = _make_western_episode_scripts()
+        violations = validate_western_quality(_make_western_series(), scripts)
+        assert not any("act_" in v for v in violations), violations
+
+
+# ===========================================================================
+# 3 Reversals tests (check 18)
+# ===========================================================================
+
+class TestReversals:
+
+    @staticmethod
+    def _scripts_with_reversals(count: int = 3, include_desc: bool = True):
+        scripts = _make_western_episode_scripts()
+        scenes = scripts[1]["scenes"]
+        for i in range(min(count, len(scenes))):
+            scenes[i]["is_reversal"] = True
+            if include_desc:
+                scenes[i]["reversal_description"] = f"Reversal {i+1}: unexpected twist"
+        return scripts
+
+    def test_3_reversals_passes(self):
+        scripts = self._scripts_with_reversals(3)
+        violations = validate_western_quality(_make_western_series(), scripts)
+        assert not any("reversal" in v.lower() for v in violations), violations
+
+    def test_1_reversal_fires(self):
+        scripts = self._scripts_with_reversals(1)
+        violations = validate_western_quality(_make_western_series(), scripts)
+        assert any("only 1 reversal" in v for v in violations), violations
+
+    def test_reversal_missing_description_fires(self):
+        scripts = self._scripts_with_reversals(3, include_desc=False)
+        violations = validate_western_quality(_make_western_series(), scripts)
+        assert any("reversal_description" in v for v in violations), violations
+
+    def test_no_reversal_tags_skips_check(self):
+        """Legacy scripts without is_reversal should not trigger violations."""
+        scripts = _make_western_episode_scripts()
+        violations = validate_western_quality(_make_western_series(), scripts)
+        assert not any("reversal" in v.lower() for v in violations), violations
+
+
+# ===========================================================================
+# Scene function mandate tests (check 19)
+# ===========================================================================
+
+class TestSceneFunction:
+
+    @staticmethod
+    def _scripts_with_functions(all_valid: bool = True, missing_one: bool = False):
+        scripts = _make_western_episode_scripts()
+        scenes = scripts[1]["scenes"]
+        funcs = ["escalate", "reveal", "emotional_peak", "escalate"]
+        for i, s in enumerate(scenes):
+            s["scene_function"] = funcs[i] if i < len(funcs) else "escalate"
+        if missing_one:
+            scenes[2]["scene_function"] = ""
+        if not all_valid:
+            scenes[1]["scene_function"] = "filler"
+        return scripts
+
+    def test_valid_scene_functions_passes(self):
+        scripts = self._scripts_with_functions()
+        violations = validate_western_quality(_make_western_series(), scripts)
+        assert not any("scene_function" in v for v in violations), violations
+
+    def test_missing_scene_function_fires(self):
+        scripts = self._scripts_with_functions(missing_one=True)
+        violations = validate_western_quality(_make_western_series(), scripts)
+        assert any("missing scene_function" in v for v in violations), violations
+
+    def test_invalid_scene_function_fires(self):
+        scripts = self._scripts_with_functions(all_valid=False)
+        violations = validate_western_quality(_make_western_series(), scripts)
+        assert any("invalid scene_function" in v for v in violations), violations
+
+    def test_no_function_tags_skips_check(self):
+        """Legacy scripts without scene_function should not trigger violations."""
+        scripts = _make_western_episode_scripts()
+        violations = validate_western_quality(_make_western_series(), scripts)
+        assert not any("scene_function" in v for v in violations), violations

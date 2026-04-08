@@ -24,6 +24,7 @@ class TaskType(StrEnum):
     MUSIC = "music"
     COMPOSE = "compose"
     RENDER = "render"
+    COVER_FRAME = "cover_frame"
 
 
 class NodeStatus(StrEnum):

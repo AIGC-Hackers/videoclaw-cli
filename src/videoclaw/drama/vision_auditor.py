@@ -126,6 +126,14 @@ Subtitle spelling errors and minor tension issues → passed=true, regen_require
 _FATAL_THRESHOLD = 0.75
 _TOLERABLE_THRESHOLD = 0.85
 
+# TikTok safe zone boundaries (percentage of frame dimensions)
+TIKTOK_SAFE_ZONE = {
+    "top_danger_pct": 0.12,      # top 12% of frame — notch + category bar
+    "bottom_danger_pct": 0.22,   # bottom 22% of frame — caption + audio bar
+    "side_danger_pct": 0.05,     # left/right 5% of frame — narrow devices
+    # Safe zone: center 83% height × 90% width
+}
+
 _AUDIT_SYSTEM_V2 = """\
 You are a pragmatic AI video quality auditor for Western live-action TikTok short dramas.
 You will see keyframes from a generated video clip.
@@ -145,6 +153,8 @@ Check for episode-level issues ONLY (not per-shot details):
 2. TRANSITION QUALITY — Any jarring visual jumps between adjacent frames?
 3. PACING — Does the frame sequence suggest good dramatic rhythm?
    (variety of shot scales, building tension)
+4. SAFE ZONE — Are character faces, subtitles, and key elements within
+   the center 83%×90% safe zone? (top 12%, bottom 22%, sides 5% are danger zones)
 
 Return JSON:
 {{
@@ -167,7 +177,7 @@ Scene spec:
 
 The {frame_count} keyframes above are from this clip (first / mid / last).
 
-Check these 4 dimensions and classify each defect as "fatal" or "tolerable":
+Check these 5 dimensions and classify each defect as "fatal" or "tolerable":
 
 1. ANATOMY — Extra fingers/limbs, facial collapse, body morphing visible on main characters.
    - Fatal if: visible in close_up/medium shot on a main character.
@@ -185,6 +195,15 @@ Check these 4 dimensions and classify each defect as "fatal" or "tolerable":
    - shot_role={shot_role}
    - Fatal if: hook shot has zero conflict/tension; cliffhanger has full resolution.
    - Tolerable if: tension exists but is weak.
+
+5. SAFE ZONE (TikTok 9:16 vertical video):
+   - Top 12% and bottom 22% of frame are DANGER ZONES (covered by app UI overlays).
+   - Left/right 5% are SIDE danger zones.
+   - Character faces, subtitles, and key objects must be within the SAFE ZONE
+     (center 83% height × 90% width).
+   - Fatal if: a main character face is in the top or bottom danger zone.
+   - Fatal if: subtitle text is cropped into the top danger zone.
+   - Tolerable if: secondary elements (hands, props) extend into danger zones.
 
 Return JSON:
 {{

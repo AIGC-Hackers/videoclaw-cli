@@ -33,6 +33,39 @@ _CHINESE_STRONG_EMOTIONS = frozenset({
 # Duality keywords for English character-duality check
 _DUALITY_KEYWORDS = frozenset({"but", "secretly", "hidden", "beneath", "actually"})
 
+# Forbidden composition patterns (pre-production manual §3)
+_FORBIDDEN_TRANSITIONS = frozenset({
+    "fade_in", "fade_out", "fade-in", "fade-out",
+    "flash", "strobe",
+})
+
+_SLOW_MOTION_KEYWORDS = frozenset({
+    "slow motion", "slow-motion", "slowmo", "speed ramp",
+    "speed ramping", "time stretch", "bullet time",
+})
+
+_BLANK_STARE_KEYWORDS = frozenset({
+    "thinking silently", "stares blankly", "staring blankly",
+    "lost in thought", "gazes into distance", "staring into space",
+})
+
+_BACK_TO_CAMERA_KEYWORDS = frozenset({
+    "back to camera", "back to the camera", "facing away",
+    "turned away", "back turned",
+})
+
+# Valid scene functions (pre-production manual §1.2)
+_VALID_SCENE_FUNCTIONS = frozenset({"escalate", "reveal", "emotional_peak"})
+
+# 4-act micro-structure boundaries (seconds) with ±5s tolerance
+_ACT_BOUNDARIES: dict[str, tuple[float, float]] = {
+    "act_1": (0.0, 15.0),    # Hook
+    "act_2": (15.0, 35.0),   # Escalation
+    "act_3": (35.0, 55.0),   # Peak
+    "act_4": (55.0, 90.0),   # Hook Out
+}
+_ACT_TOLERANCE = 5.0
+
 
 # ---------------------------------------------------------------------------
 # Western / English quality validator
@@ -207,6 +240,172 @@ def validate_western_quality(
                 violations.append(
                     f"Episode {ep_num}: V.O. ratio {ratio:.0%} exceeds "
                     f"20% limit (benchmark: 19%)"
+                )
+
+    # ------------------------------------------------------------------
+    # 12. Forbidden transitions — no fade-in/out, flash, strobe
+    # ------------------------------------------------------------------
+    for ep_num, script in episode_scripts.items():
+        for scene in script.get("scenes", []):
+            transition = (scene.get("transition") or "").lower().strip()
+            if transition in _FORBIDDEN_TRANSITIONS:
+                violations.append(
+                    f"Episode {ep_num} scene '{scene.get('scene_id', '?')}': "
+                    f"forbidden transition '{transition}' (no fades/flash/strobe)"
+                )
+
+    # ------------------------------------------------------------------
+    # 13. Empty establishing shots — wide/extreme_wide must have characters
+    # ------------------------------------------------------------------
+    for ep_num, script in episode_scripts.items():
+        for scene in script.get("scenes", []):
+            scale = scene.get("shot_scale", "")
+            chars = scene.get("characters_present", [])
+            if scale in ("wide", "extreme_wide") and not chars:
+                vp = (scene.get("visual_prompt") or "").lower()
+                if "character" not in vp and "person" not in vp and "figure" not in vp:
+                    violations.append(
+                        f"Episode {ep_num} scene '{scene.get('scene_id', '?')}': "
+                        f"wide shot with no character focus (must have foreground character)"
+                    )
+
+    # ------------------------------------------------------------------
+    # 14. Forbidden slow motion / speed ramping
+    # ------------------------------------------------------------------
+    for ep_num, script in episode_scripts.items():
+        for scene in script.get("scenes", []):
+            vp = (scene.get("visual_prompt") or "").lower()
+            desc = (scene.get("description") or "").lower()
+            combined = f"{vp} {desc}"
+            for kw in _SLOW_MOTION_KEYWORDS:
+                if kw in combined:
+                    violations.append(
+                        f"Episode {ep_num} scene '{scene.get('scene_id', '?')}': "
+                        f"forbidden slow motion/speed ramp ('{kw}')"
+                    )
+                    break
+
+    # ------------------------------------------------------------------
+    # 15. Forbidden blank stare / passive thinking
+    # ------------------------------------------------------------------
+    for ep_num, script in episode_scripts.items():
+        for scene in script.get("scenes", []):
+            vp = (scene.get("visual_prompt") or "").lower()
+            desc = (scene.get("description") or "").lower()
+            combined = f"{vp} {desc}"
+            for kw in _BLANK_STARE_KEYWORDS:
+                if kw in combined:
+                    violations.append(
+                        f"Episode {ep_num} scene '{scene.get('scene_id', '?')}': "
+                        f"forbidden passive shot ('{kw}') — must show action"
+                    )
+                    break
+
+    # ------------------------------------------------------------------
+    # 16. Forbidden back-to-camera (unless reveal moment)
+    # ------------------------------------------------------------------
+    for ep_num, script in episode_scripts.items():
+        for scene in script.get("scenes", []):
+            vp = (scene.get("visual_prompt") or "").lower()
+            desc = (scene.get("description") or "").lower()
+            for kw in _BACK_TO_CAMERA_KEYWORDS:
+                if kw in vp:
+                    # Exception: back-to-camera is allowed for reveal moments
+                    if "reveal" not in desc and "reveal" not in vp:
+                        violations.append(
+                            f"Episode {ep_num} scene '{scene.get('scene_id', '?')}': "
+                            f"character with back to camera ('{kw}') — "
+                            f"only allowed for reveal moments"
+                        )
+                    break
+
+    # ------------------------------------------------------------------
+    # 17. 4-Act micro-structure — cumulative durations per act
+    # ------------------------------------------------------------------
+    for ep_num, script in episode_scripts.items():
+        scenes = script.get("scenes", [])
+        acts_present = [s.get("act_number", "") for s in scenes if s.get("act_number")]
+        if not acts_present:
+            continue  # Skip for legacy scripts without act_number
+        # Verify all 4 acts present
+        unique_acts = set(acts_present)
+        for act_key in _ACT_BOUNDARIES:
+            if act_key not in unique_acts:
+                violations.append(
+                    f"Episode {ep_num}: missing {act_key} in 4-act structure"
+                )
+        # Verify act ordering is monotonic
+        act_order = ["act_1", "act_2", "act_3", "act_4"]
+        seen_order: list[str] = []
+        for s in scenes:
+            an = s.get("act_number", "")
+            if an and (not seen_order or seen_order[-1] != an):
+                seen_order.append(an)
+        for i in range(1, len(seen_order)):
+            prev_idx = act_order.index(seen_order[i - 1]) if seen_order[i - 1] in act_order else -1
+            curr_idx = act_order.index(seen_order[i]) if seen_order[i] in act_order else -1
+            if curr_idx < prev_idx:
+                violations.append(
+                    f"Episode {ep_num}: act order violation — "
+                    f"{seen_order[i]} appears after {seen_order[i - 1]}"
+                )
+        # Verify act boundary timing (±5s tolerance)
+        cumulative = 0.0
+        current_act = ""
+        for s in scenes:
+            an = s.get("act_number", "")
+            if an and an != current_act:
+                if an in _ACT_BOUNDARIES:
+                    expected_start, _expected_end = _ACT_BOUNDARIES[an]
+                    if abs(cumulative - expected_start) > _ACT_TOLERANCE:
+                        violations.append(
+                            f"Episode {ep_num}: {an} starts at {cumulative:.1f}s "
+                            f"(expected ~{expected_start:.0f}s ±{_ACT_TOLERANCE:.0f}s)"
+                        )
+                current_act = an
+            cumulative += s.get("duration_seconds", 0)
+
+    # ------------------------------------------------------------------
+    # 18. 3 Reversals per episode — minimum reversal count
+    # ------------------------------------------------------------------
+    for ep_num, script in episode_scripts.items():
+        scenes = script.get("scenes", [])
+        reversals = [s for s in scenes if s.get("is_reversal")]
+        if not any(s.get("is_reversal") is not None and s.get("is_reversal") is not False
+                   for s in scenes):
+            continue  # Skip for legacy scripts without is_reversal
+        if len(reversals) < 3:
+            violations.append(
+                f"Episode {ep_num}: only {len(reversals)} reversal(s) "
+                f"(need ≥3 per episode)"
+            )
+        for s in reversals:
+            if not s.get("reversal_description"):
+                violations.append(
+                    f"Episode {ep_num} scene '{s.get('scene_id', '?')}': "
+                    f"is_reversal=true but missing reversal_description"
+                )
+
+    # ------------------------------------------------------------------
+    # 19. Scene function mandate — every scene must serve A/B/C
+    # ------------------------------------------------------------------
+    for ep_num, script in episode_scripts.items():
+        scenes = script.get("scenes", [])
+        has_any = any(s.get("scene_function") for s in scenes)
+        if not has_any:
+            continue  # Skip for legacy scripts
+        for scene in scenes:
+            sf = scene.get("scene_function", "")
+            if not sf:
+                violations.append(
+                    f"Episode {ep_num} scene '{scene.get('scene_id', '?')}': "
+                    f"missing scene_function (must be escalate/reveal/emotional_peak)"
+                )
+            elif sf not in _VALID_SCENE_FUNCTIONS:
+                violations.append(
+                    f"Episode {ep_num} scene '{scene.get('scene_id', '?')}': "
+                    f"invalid scene_function '{sf}' "
+                    f"(must be escalate/reveal/emotional_peak)"
                 )
 
     return violations

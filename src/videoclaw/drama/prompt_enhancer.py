@@ -79,15 +79,20 @@ CAMERA_MOVEMENT_LABELS: dict[str, str] = {
     "tracking": "gimbal-smooth tracking shot",
     "crane_up": "slow crane up",
     "handheld": "handheld camera, slight sway",
+    "orbit": "slow orbit around subject",
+    "tilt_up": "slow tilt up from feet to face",
+    "dolly_zoom": "dolly zoom (Vertigo / Hitchcock effect)",
+    "whip_pan": "fast whip pan with motion blur",
+    "pull_back": "slow pull back revealing wider scene",
 }
 
 # Shot scale → best camera pairing (Seedance 2.0 guide)
 _SHOT_CAMERA_AFFINITY: dict[ShotScale, set[str]] = {
-    ShotScale.CLOSE_UP: {"dolly_in", "static"},      # tiny push-ins or locked
-    ShotScale.MEDIUM_CLOSE: {"handheld", "tracking"}, # personal or polished
-    ShotScale.MEDIUM: {"handheld", "tracking", "dolly_in"},
-    ShotScale.WIDE: {"static", "dolly_in", "crane_up"},
-    ShotScale.EXTREME_WIDE: {"static", "crane_up"},
+    ShotScale.CLOSE_UP: {"dolly_in", "static", "tilt_up", "dolly_zoom"},
+    ShotScale.MEDIUM_CLOSE: {"handheld", "tracking", "orbit", "dolly_zoom"},
+    ShotScale.MEDIUM: {"handheld", "tracking", "dolly_in", "orbit", "whip_pan", "pull_back", "pan_left", "pan_right"},
+    ShotScale.WIDE: {"static", "dolly_in", "crane_up", "pull_back", "orbit", "pan_left", "pan_right"},
+    ShotScale.EXTREME_WIDE: {"static", "crane_up", "pull_back"},
 }
 
 # Models that require English-only prompts

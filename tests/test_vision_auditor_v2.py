@@ -9,8 +9,11 @@ import pytest
 
 from videoclaw.drama.models import DramaScene
 from videoclaw.drama.vision_auditor import (
+    TIKTOK_SAFE_ZONE,
     ShotAuditResult,
     VisionAuditor,
+    _AUDIT_USER_TEMPLATE_V2,
+    _COMPOSITION_AUDIT_PROMPT,
 )
 
 
@@ -213,3 +216,25 @@ class TestPerShotDurationDrift:
             result = await auditor.audit_shot(scene, Path("/fake/clip.mp4"))
         assert not any("drift" in f for f in result.fatals)
         assert not any("drift" in t for t in result.tolerables)
+
+
+class TestSafeZone:
+    """Tests for TikTok safe zone enforcement in audit prompts."""
+
+    def test_safe_zone_in_audit_prompt(self):
+        """_AUDIT_USER_TEMPLATE_V2 must contain SAFE ZONE dimension."""
+        assert "SAFE ZONE" in _AUDIT_USER_TEMPLATE_V2
+
+    def test_safe_zone_in_composition_prompt(self):
+        """_COMPOSITION_AUDIT_PROMPT must contain SAFE ZONE check."""
+        assert "SAFE ZONE" in _COMPOSITION_AUDIT_PROMPT
+
+    def test_safe_zone_constants_valid(self):
+        """Safe zone percentages must be geometrically valid."""
+        top = TIKTOK_SAFE_ZONE["top_danger_pct"]
+        bottom = TIKTOK_SAFE_ZONE["bottom_danger_pct"]
+        side = TIKTOK_SAFE_ZONE["side_danger_pct"]
+        # Top + bottom danger zones must not consume the entire frame height
+        assert top + bottom < 1.0, f"top({top}) + bottom({bottom}) >= 1.0"
+        # Side danger zone must be less than half the frame width
+        assert side < 0.5, f"side({side}) >= 0.5"

@@ -516,6 +516,66 @@ class VideoComposer:
         logger.info("Final render complete: %s", output_path)
         return output_path
 
+    async def prepend_cover_frame(
+        self,
+        cover_image_path: Path,
+        video_path: Path,
+        output_path: Path,
+        *,
+        duration: float = 1.0,
+        resolution: str = "720x1280",
+    ) -> Path:
+        """Convert a cover image to a 1-second clip and prepend to the main video.
+
+        Steps:
+        1. Convert 3:4 cover image to a 1s 9:16 video clip (scale+pad)
+        2. Concatenate [cover_clip, main_video] using concat demuxer
+        """
+        import tempfile
+
+        await self._ensure_ffmpeg()
+
+        cover_clip = output_path.parent / f"_cover_clip_{output_path.stem}.mp4"
+        concat_list = output_path.parent / f"_concat_{output_path.stem}.txt"
+
+        try:
+            # Step 1: image -> 1-second video clip
+            w, h = resolution.split("x")
+            await self._run_ffmpeg([
+                "ffmpeg", "-y",
+                "-loop", "1",
+                "-i", str(cover_image_path),
+                "-t", str(duration),
+                "-vf", f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black",
+                "-c:v", "libx264",
+                "-pix_fmt", "yuv420p",
+                "-r", "30",
+                str(cover_clip),
+            ])
+
+            # Step 2: concat demuxer
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            concat_list.write_text(
+                f"file '{cover_clip}'\nfile '{video_path}'\n"
+            )
+            await self._run_ffmpeg([
+                "ffmpeg", "-y",
+                "-f", "concat",
+                "-safe", "0",
+                "-i", str(concat_list),
+                "-c", "copy",
+                str(output_path),
+            ])
+
+            logger.info("Prepended cover frame to %s", output_path.name)
+            return output_path
+        finally:
+            # Cleanup temp files
+            if cover_clip.exists():
+                cover_clip.unlink()
+            if concat_list.exists():
+                concat_list.unlink()
+
     # ------------------------------------------------------------------
     # FFmpeg command builders
     # ------------------------------------------------------------------

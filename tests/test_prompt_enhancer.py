@@ -13,6 +13,8 @@ from videoclaw.drama.prompt_enhancer import (
     _CJK_CHAR_RE,
     _MAX_CHINESE_CHARS,
     _MAX_ENGLISH_WORDS,
+    _SHOT_CAMERA_AFFINITY,
+    CAMERA_MOVEMENT_LABELS,
     PromptEnhancer,
     _to_ref_key,
 )
@@ -476,3 +478,46 @@ class TestTextLengthEnforcement:
         result = enhancer.enhance_scene_prompt(scene, series)
         assert "Style: cinematic" in result
         assert "Constraints:" in result
+
+
+# ---------------------------------------------------------------------------
+# Tests: camera vocabulary expansion
+# ---------------------------------------------------------------------------
+
+class TestCameraVocabulary:
+    def test_all_camera_movements_have_labels(self):
+        """All 12 camera movement keys must exist in CAMERA_MOVEMENT_LABELS."""
+        expected_keys = {
+            "static", "pan_left", "pan_right", "dolly_in", "tracking",
+            "crane_up", "handheld", "orbit", "tilt_up", "dolly_zoom",
+            "whip_pan", "pull_back",
+        }
+        assert set(CAMERA_MOVEMENT_LABELS.keys()) == expected_keys
+        assert len(CAMERA_MOVEMENT_LABELS) == 12
+
+    def test_camera_affinity_covers_new_movements(self):
+        """Every movement in CAMERA_MOVEMENT_LABELS appears in at least one affinity set."""
+        all_affinity_moves: set[str] = set()
+        for moves in _SHOT_CAMERA_AFFINITY.values():
+            all_affinity_moves |= moves
+        for move in CAMERA_MOVEMENT_LABELS:
+            assert move in all_affinity_moves, (
+                f"Camera movement '{move}' is not covered by any affinity set"
+            )
+
+    def test_dolly_zoom_in_enhanced_prompt(self):
+        """dolly_zoom camera movement produces 'Vertigo' or 'dolly zoom' in enhanced prompt."""
+        enhancer = PromptEnhancer()
+        scene = _make_western_scene(camera_movement="dolly_zoom")
+        series = _make_western_series()
+        result = enhancer.enhance_scene_prompt(scene, series)
+        result_lower = result.lower()
+        assert "vertigo" in result_lower or "dolly zoom" in result_lower
+
+    def test_whip_pan_in_enhanced_prompt(self):
+        """whip_pan camera movement produces 'whip pan' in enhanced prompt."""
+        enhancer = PromptEnhancer()
+        scene = _make_western_scene(camera_movement="whip_pan")
+        series = _make_western_series()
+        result = enhancer.enhance_scene_prompt(scene, series)
+        assert "whip pan" in result.lower()
