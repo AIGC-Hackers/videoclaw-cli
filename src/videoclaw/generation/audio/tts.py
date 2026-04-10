@@ -26,6 +26,17 @@ from videoclaw.drama.models import (
 logger = logging.getLogger(__name__)
 
 
+def _is_edge_tts_voice(voice: str) -> bool:
+    """Return True if *voice* looks like an EdgeTTS voice identifier.
+
+    EdgeTTS voices follow the ``{locale}-{Name}Neural`` format
+    (e.g. ``en-US-JennyNeural``, ``zh-CN-XiaoxiaoNeural``).  Any voice
+    string not matching this pattern is treated as incompatible — e.g.
+    MiniMax-style IDs like ``Friendly_Person`` or ``Imposing_Manner``.
+    """
+    return "Neural" in voice and "-" in voice
+
+
 # ---------------------------------------------------------------------------
 # Emotion → WaveSpeed voice parameter mapping
 # ---------------------------------------------------------------------------
@@ -600,6 +611,19 @@ class TTSManager:
                 )
             else:
                 resolved_voice = "default"
+        elif isinstance(self._provider, EdgeTTSProvider) and not _is_edge_tts_voice(
+            resolved_voice
+        ):
+            # VoiceCaster may assign MiniMax-style IDs (e.g. "Friendly_Person")
+            # that EdgeTTS can't use. Fall back to the language default.
+            fallback = EdgeTTSProvider.DEFAULT_VOICES.get(
+                language, "en-US-JennyNeural"
+            )
+            logger.warning(
+                "Voice %r is not an EdgeTTS voice; falling back to %s",
+                resolved_voice, fallback,
+            )
+            resolved_voice = fallback
 
         logger.info(
             "Generating voiceover: %d chars, voice=%s, output=%s",
