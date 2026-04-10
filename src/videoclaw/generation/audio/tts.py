@@ -702,11 +702,28 @@ class TTSManager:
             final_pitch = resolved.pitch + prosody.pitch_adjust
             final_volume = resolved.volume + prosody.volume_adjust
 
+            # Voice compatibility: VoiceCaster may assign MiniMax-style IDs
+            # (e.g. "Friendly_Person") that EdgeTTS rejects. Fall back to
+            # the language default when the voice format doesn't match.
+            voice_id = profile.voice_id
+            if isinstance(self._provider, EdgeTTSProvider) and not _is_edge_tts_voice(
+                voice_id
+            ):
+                fallback = EdgeTTSProvider.DEFAULT_VOICES.get(
+                    language, "en-US-JennyNeural"
+                )
+                logger.warning(
+                    "Voice %r (speaker=%r) is not an EdgeTTS voice; "
+                    "falling back to %s",
+                    voice_id, speaker, fallback,
+                )
+                voice_id = fallback
+
             async with sem:
                 if isinstance(self._provider, WaveSpeedTTSProvider):
                     audio_data = await self._provider.synthesize(
                         text=line.text,
-                        voice=profile.voice_id,
+                        voice=voice_id,
                         language=language,
                         speed=final_speed,
                         pitch=final_pitch,
@@ -716,7 +733,7 @@ class TTSManager:
                 else:
                     audio_data = await self._provider.synthesize(
                         text=line.text,
-                        voice=profile.voice_id,
+                        voice=voice_id,
                         language=language,
                     )
 
