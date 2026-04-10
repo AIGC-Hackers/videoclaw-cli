@@ -380,6 +380,134 @@ class TestHandleVideoGen:
             assert "reference_image" not in call_kwargs.kwargs
 
     @pytest.mark.asyncio
+    async def test_handle_video_gen_prepends_cast_header_with_urls(self):
+        """CAST header is prepended when reference_image_urls are provided.
+
+        Seedance 2.0 has no per-image labels — the only way to associate
+        character names with reference images is through the prompt text.
+        The executor must prepend an ordered cast list matching the
+        image_urls order.
+        """
+        shot = Shot(
+            shot_id="s001",
+            prompt="Ivy and Colton confront each other.",
+            model_id="mock",
+        )
+        state = ProjectState()
+        state.storyboard = [shot]
+
+        node = TaskNode(
+            node_id="video_s001",
+            task_type=TaskType.VIDEO_GEN,
+            params={
+                "shot_id": "s001",
+                "prompt": "Ivy and Colton confront each other.",
+                "reference_image_urls": {
+                    "Ivy": "https://cdn.example/ivy.png",
+                    "Colton": "https://cdn.example/colton.png",
+                },
+                "speaking_character": "Ivy",
+            },
+        )
+
+        mock_result = GenerationResult(
+            video_data=b"fake_video",
+            duration_seconds=5.0,
+            cost_usd=0.0,
+            model_id="mock",
+        )
+
+        with (
+            patch("videoclaw.models.registry.get_registry") as mock_get_reg,
+            patch("videoclaw.generation.video.VideoGenerator") as MockVG,
+            patch("videoclaw.models.router.ModelRouter"),
+        ):
+            mock_registry = MagicMock()
+            mock_registry.list_models.return_value = [{"model_id": "mock"}]
+            mock_get_reg.return_value = mock_registry
+
+            mock_gen_instance = AsyncMock()
+            mock_gen_instance.generate_shot.return_value = mock_result
+            MockVG.return_value = mock_gen_instance
+
+            from videoclaw.core.executor import DAGExecutor
+            from videoclaw.core.planner import DAG
+
+            dag = DAG()
+            dag.add_node(node)
+            executor = DAGExecutor(dag=dag, state=state)
+
+            await executor._handle_video_gen(node, state)
+
+            shot_arg = mock_gen_instance.generate_shot.call_args.args[0]
+            prompt = shot_arg.prompt
+
+            # CAST header prepended
+            assert "REFERENCE IMAGES PROVIDED" in prompt
+            assert "Image 1: Ivy" in prompt
+            assert "Image 2: Colton" in prompt
+            # Cast appears BEFORE the original scene text
+            assert prompt.index("Image 1: Ivy") < prompt.index(
+                "Ivy and Colton confront each other."
+            )
+
+            # image_urls order matches cast order
+            call_kwargs = mock_gen_instance.generate_shot.call_args
+            extra = call_kwargs.kwargs.get("extra", {})
+            urls = extra.get("image_urls", [])
+            assert len(urls) == 2
+            assert urls[0]["url"] == "https://cdn.example/ivy.png"
+            assert urls[1]["url"] == "https://cdn.example/colton.png"
+
+    @pytest.mark.asyncio
+    async def test_handle_video_gen_no_cast_when_no_refs(self):
+        """No CAST header when no character references are provided."""
+        shot = Shot(shot_id="s001", prompt="A man walks away.", model_id="mock")
+        state = ProjectState()
+        state.storyboard = [shot]
+
+        node = TaskNode(
+            node_id="video_s001",
+            task_type=TaskType.VIDEO_GEN,
+            params={
+                "shot_id": "s001",
+                "prompt": "A man walks away.",
+                "reference_image_urls": {},
+                "reference_images": {},
+            },
+        )
+
+        mock_result = GenerationResult(
+            video_data=b"fake", duration_seconds=5.0, cost_usd=0.0, model_id="mock",
+        )
+        with (
+            patch("videoclaw.models.registry.get_registry") as mock_get_reg,
+            patch("videoclaw.generation.video.VideoGenerator") as MockVG,
+            patch("videoclaw.models.router.ModelRouter"),
+        ):
+            mock_registry = MagicMock()
+            mock_registry.list_models.return_value = [{"model_id": "mock"}]
+            mock_get_reg.return_value = mock_registry
+
+            mock_gen_instance = AsyncMock()
+            mock_gen_instance.generate_shot.return_value = mock_result
+            MockVG.return_value = mock_gen_instance
+
+            from videoclaw.core.executor import DAGExecutor
+            from videoclaw.core.planner import DAG
+
+            dag = DAG()
+            dag.add_node(node)
+            executor = DAGExecutor(dag=dag, state=state)
+
+            await executor._handle_video_gen(node, state)
+
+            shot_arg = mock_gen_instance.generate_shot.call_args.args[0]
+            # Prompt untouched — no refs → no CAST header
+            assert shot_arg.prompt == "A man walks away."
+            assert "REFERENCE IMAGES PROVIDED" not in shot_arg.prompt
+
+    @pytest.mark.asyncio
     async def test_handle_video_gen_does_not_attach_reference_mapping_text(self):
         """Reference images should not be converted into extra prompt text at runtime."""
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -596,23 +596,27 @@ class DAGExecutor:
 
         extra: dict[str, Any] = {}
         image_urls: list[dict[str, str]] = []
+        # Ordered (name, url) pairs — used to build the CAST header so the
+        # prompt text and the image array agree on character order.
+        character_refs_ordered: list[tuple[str, str]] = []
 
         if reference_image_urls:
             # Preferred: HTTPS URLs for character turnaround sheets
             for char_name, url in reference_image_urls.items():
                 if url and url.startswith("http"):
                     image_urls.append({"url": url, "role": "reference_image"})
+                    character_refs_ordered.append((char_name, url))
             logger.info(
                 "[video_gen] Passing %d character HTTPS URLs as reference for shot %s",
                 len(image_urls), shot_id,
             )
         elif reference_images:
             # Fallback: local file paths (will be base64-encoded by adapter)
-            image_paths = [
-                {"path": path, "role": "reference_image"}
-                for path in reference_images.values()
-                if path
-            ]
+            image_paths = []
+            for char_name, path in reference_images.items():
+                if path:
+                    image_paths.append({"path": path, "role": "reference_image"})
+                    character_refs_ordered.append((char_name, path))
             if image_paths:
                 extra["image_paths"] = image_paths
                 logger.info(
@@ -685,6 +689,30 @@ class DAGExecutor:
             logger.info(
                 "[video_gen] Using structured segments for shot %s (%d segments, %d refs)",
                 shot_id, len(segments), len(allocated),
+            )
+
+        # --- CAST header: associate reference images with character names ---
+        # Seedance 2.0 API does not support per-image labels (only url + role),
+        # so the only way to tell the model "image N is character X" is through
+        # the prompt text. We prepend an ordered cast list that matches the
+        # image_urls / image_paths order. Skipped when using prompt_segments
+        # (which interleaves text and images inline).
+        if character_refs_ordered and "prompt_segments" not in extra:
+            cast_lines = [
+                f"  Image {i}: {name}"
+                for i, (name, _) in enumerate(character_refs_ordered, start=1)
+            ]
+            cast_header = (
+                "REFERENCE IMAGES PROVIDED (match each numbered image to the "
+                "named character below — use their exact appearance for "
+                "consistency across shots):\n"
+                + "\n".join(cast_lines)
+                + "\n\n"
+            )
+            shot.prompt = cast_header + shot.prompt
+            logger.info(
+                "[video_gen] Prepended CAST header with %d characters for shot %s",
+                len(character_refs_ordered), shot_id,
             )
 
         registry = get_registry()

@@ -147,6 +147,60 @@ def clean_visual_prompt(visual_prompt: str) -> str:
     return cleaned.strip() or visual_prompt
 
 
+# Photorealistic descriptors that trigger PrivacyInformation content filter.
+# Replaced by neutral equivalents to keep the character recognisable without
+# triggering "real person risk" detection.
+_PRIVACY_REPLACEMENTS: list[tuple[str, str]] = [
+    # Sharp facial features
+    (r"\bsharp\s+jawline\b",           "defined jaw"),
+    (r"\bchiseled\s+jawline\b",        "defined jaw"),
+    (r"\bhigh[- ]bridged\s+nose\b",    ""),
+    (r"\bstraight\s+nose\b",           ""),
+    (r"\baquiline\s+nose\b",           ""),
+    (r"\bpiercing\s+(?:ice-cold\s+)?eyes\b", "cold eyes"),
+    (r"\bpiercing\s+gaze\b",           "cold gaze"),
+    (r"\bintense\s+gaze\b",            "cold gaze"),
+    (r"\bhigh\s+cheekbones\b",         ""),
+    # Sexualised descriptors
+    (r"\bsexy\b",                      "stylish"),
+    (r"\bseductive\b",                 "poised"),
+    (r"\balluring\b",                  "poised"),
+    (r"\bbold\s+lips\b",               ""),
+    (r"\bfull\s+lips\b",               ""),
+    (r"\bplump\s+lips\b",              ""),
+    (r"\bheavy\s+glamorous\s+makeup\b", "light makeup"),
+    (r"\bsmokey\s+eye(?:s)?\b",        ""),
+    # Over-detailed skin / complexion
+    (r"\bflawless\s+skin\b",           ""),
+    (r"\bporcelain\s+skin\b",          ""),
+    (r"\bexpressive\s+face\b",         ""),
+    # Cleanup leftover punctuation/whitespace
+]
+
+_PRIVACY_CLEANUP_PATTERNS = [
+    (re.compile(r"\s*,\s*,"), ","),     # double comma → single
+    (re.compile(r"\s{2,}"),   " "),      # collapse whitespace
+    (re.compile(r",\s*\."),   "."),      # ", ." → "."
+    (re.compile(r"\s+,"),     ","),      # " ," → ","
+    (re.compile(r"\s+\."),    "."),      # " ." → "."
+]
+
+
+def sanitize_for_image_api(text: str) -> str:
+    """Strip photorealistic descriptors that trigger PrivacyInformation filter.
+
+    The Evolink / vectorspace.cn content filter rejects references that
+    describe sharp realistic facial features or sexualised appearances.
+    This sanitiser neutralises known triggers while keeping age, hair,
+    outfit, and overall silhouette intact.
+    """
+    for pattern, replacement in _PRIVACY_REPLACEMENTS:
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    for rx, replacement in _PRIVACY_CLEANUP_PATTERNS:
+        text = rx.sub(replacement, text)
+    return text.strip()
+
+
 class CharacterDesigner:
     """Generates reference images for all characters in a drama series.
 
@@ -228,7 +282,9 @@ class CharacterDesigner:
                     logger.info("Skipping %s (already has reference image)", character.name)
                     return
 
-            appearance = clean_visual_prompt(character.visual_prompt)
+            appearance = sanitize_for_image_api(
+                clean_visual_prompt(character.visual_prompt)
+            )
             safe_name = re.sub(r"[^\w\-]", "_", character.name).strip("_")
 
             async with sem:
@@ -387,7 +443,9 @@ class CharacterDesigner:
                 refreshed[character.name] = character.reference_image_url
                 return
 
-            appearance = clean_visual_prompt(character.visual_prompt)
+            appearance = sanitize_for_image_api(
+                clean_visual_prompt(character.visual_prompt)
+            )
             safe_name = re.sub(r"[^\w\-]", "_", character.name).strip("_")
             filename = f"{safe_name}_turnaround.png"
 
@@ -421,7 +479,12 @@ class CharacterDesigner:
 
                 refreshed[character.name] = url
             except Exception as e:
-                logger.error("Failed to refresh %s: %s", character.name, e)
+                # Surface the full error so content-filter rejections are visible
+                logger.error(
+                    "Failed to refresh %s (%s): %s",
+                    character.name, type(e).__name__, e,
+                    exc_info=True,
+                )
                 refreshed[character.name] = ""
 
         await asyncio.gather(*[_refresh_one(c) for c in series.characters])

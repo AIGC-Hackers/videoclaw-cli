@@ -11,6 +11,7 @@ from videoclaw.drama.character_designer import (
     CHARACTER_IMAGE_PROMPT,
     CHARACTER_IMAGE_PROMPT_SINGLE,
     CharacterDesigner,
+    sanitize_for_image_api,
 )
 from videoclaw.drama.models import Character, DramaManager, DramaSeries
 
@@ -130,3 +131,66 @@ async def test_skips_character_with_existing_image(mock_image_generator, mock_dr
     await designer.design_characters(series)
 
     mock_image_generator.generate.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# sanitize_for_image_api — content-filter safe prompts
+# ---------------------------------------------------------------------------
+
+
+def test_sanitize_strips_sharp_jawline():
+    """Colton-style photorealistic male descriptors are stripped."""
+    raw = (
+        "Tall imposing man, 30, dark hair slicked back, sharp jawline, "
+        "high-bridged nose, piercing ice-cold eyes."
+    )
+    result = sanitize_for_image_api(raw)
+    assert "sharp jawline" not in result
+    assert "high-bridged nose" not in result
+    assert "piercing" not in result
+    # Non-risky parts preserved
+    assert "Tall imposing man" in result
+    assert "30" in result
+    assert "dark hair slicked back" in result
+
+
+def test_sanitize_strips_sexualized_female_descriptors():
+    """Chloe-style sexualised female descriptors are stripped."""
+    raw = (
+        "Young woman, 28, short sleek stylish hair, heavy glamorous makeup "
+        "with bold lips, wearing a sexy strappy designer outfit. "
+        "Expressive face, heiress energy."
+    )
+    result = sanitize_for_image_api(raw)
+    assert "sexy" not in result.lower()
+    assert "bold lips" not in result
+    assert "heavy glamorous makeup" not in result
+    assert "expressive face" not in result.lower()
+    # Non-risky parts preserved
+    assert "28" in result
+    assert "stylish hair" in result
+    assert "strappy designer outfit" in result
+    assert "heiress energy" in result
+
+
+def test_sanitize_preserves_wholesome_descriptors():
+    """Ivy-style wholesome descriptors pass through unchanged."""
+    raw = (
+        "Young woman, 26, blonde hair, sun-kissed skin, bright expressive "
+        "eyes, athletic build, natural beauty, minimal makeup."
+    )
+    result = sanitize_for_image_api(raw)
+    assert "26" in result
+    assert "blonde hair" in result
+    assert "sun-kissed skin" in result
+    assert "athletic build" in result
+    assert "natural beauty" in result
+
+
+def test_sanitize_cleans_double_commas():
+    """After removing descriptors, punctuation artifacts are cleaned up."""
+    raw = "Woman, sharp jawline, stylish hair, bold lips, tall."
+    result = sanitize_for_image_api(raw)
+    assert ", ," not in result
+    assert "  " not in result
+    assert "stylish hair" in result
