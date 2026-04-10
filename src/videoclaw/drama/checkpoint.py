@@ -526,7 +526,12 @@ class CheckpointController:
         series_dir = projects_dir / "dramas" / self.series.series_id
 
         ep_num = self.episode.number
-        review_dir = series_dir / "review" / f"ep{ep_num:02d}"
+        series_slug = _slugify(self.series.title) or self.series.series_id[:8]
+        ep_slug = _slugify(self.episode.title, max_len=20)
+        dir_name = f"{series_slug}__ep{ep_num:02d}"
+        if ep_slug:
+            dir_name += f"_{ep_slug}"
+        review_dir = series_dir / "review" / dir_name
 
         # Create all subdirectories on first call (idempotent)
         review_dir.mkdir(parents=True, exist_ok=True)

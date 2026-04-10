@@ -465,7 +465,7 @@ def test_snapshot_roundtrip_with_review_dir():
 
 @pytest.mark.asyncio
 async def test_controller_cumulative_review_dir(tmp_path: Path):
-    """Two checkpoints on the same episode share one review/ep01/ directory.
+    """Two checkpoints on the same episode share one cumulative review directory.
 
     after_design populates characters/ (not prompts/).
     after_storyboard populates prompts/ (keeps characters/).
@@ -518,7 +518,7 @@ async def test_controller_cumulative_review_dir(tmp_path: Path):
         remaining_stages=["run"],
     )
 
-    review_dir = tmp_path / "dramas" / "cumul_test" / "review" / "ep01"
+    review_dir = tmp_path / "dramas" / "cumul_test" / "review" / "cumulative_test__ep01_pilot"
     assert review_dir.is_dir()
 
     # All subdirs should exist (created on first call)
@@ -622,7 +622,7 @@ async def test_review_summary_is_cumulative(tmp_path: Path):
     # Checkpoint 1: after_storyboard → populates prompts/
     await ctrl.checkpoint(CheckpointStage.AFTER_STORYBOARD, cost_usd=0.1)
 
-    review_dir = tmp_path / "dramas" / "summary_test" / "review" / "ep01"
+    review_dir = tmp_path / "dramas" / "summary_test" / "review" / "summary_test__ep01_pilot"
     content = (review_dir / "_REVIEW.txt").read_text()
     assert "prompts/" in content
     assert "1 files" in content  # 1 prompt file
@@ -724,7 +724,7 @@ async def test_storyboard_md_generated(tmp_path: Path):
 
     await ctrl.checkpoint(CheckpointStage.AFTER_STORYBOARD, cost_usd=0.0)
 
-    review_dir = tmp_path / "dramas" / "storyboard_test" / "review" / "ep01"
+    review_dir = tmp_path / "dramas" / "storyboard_test" / "review" / "storyboard_test_drama__ep01_pilot"
     storyboard = review_dir / "storyboard.md"
     assert storyboard.exists()
 
