@@ -554,6 +554,9 @@ class CheckpointController:
         if "composed" in active_subdirs:
             self._update_composed(review_dir / "composed", series_dir)
 
+        # Storyboard: always regenerated (cheap text, reflects latest state)
+        self._update_storyboard(review_dir)
+
         # Collect ALL assets across the entire review dir (cumulative)
         assets = self._collect_all_assets(review_dir)
         return review_dir, assets
@@ -640,6 +643,188 @@ class CheckpointController:
             for f in video_src.iterdir():
                 if "final" in f.name.lower() or "composed" in f.name.lower():
                     _safe_symlink(f, composed_dir / f.name, keep_versions=True)
+
+    # ------------------------------------------------------------------
+    # Storyboard document
+    # ------------------------------------------------------------------
+
+    # Chinese labels for shot scales (制片人习惯用中文景别名)
+    _SCALE_LABELS: dict[str, str] = {
+        "close_up": "特写",
+        "medium_close": "中近景",
+        "medium": "中景",
+        "wide": "全景",
+        "extreme_wide": "远景",
+    }
+
+    def _update_storyboard(self, review_dir: Path) -> None:
+        """Generate ``storyboard.md`` — the producer's review document.
+
+        Contains two sections:
+
+        1. **制作分析** — duration breakdown, shot scale distribution,
+           character screen time.
+        2. **分镜详情** — every scene grouped by ACT → scene_group,
+           with full metadata per shot.
+        """
+        scenes = self.episode.scenes
+        if not scenes:
+            return
+
+        lines: list[str] = []
+        title = self.series.title
+        ep_num = self.episode.number
+
+        lines.append(f"# {title} — EP{ep_num:02d} 分镜表\n")
+        lines.append(
+            f"> {len(scenes)} scenes | "
+            f"预估总时长 ~{sum(s.duration_seconds for s in scenes):.0f}s | "
+            f"{self.series.aspect_ratio} | {self.series.model_id}\n"
+        )
+
+        # ---- 制作分析 ----
+        lines.append("## 制作分析\n")
+        self._write_duration_analysis(lines, scenes)
+        self._write_scale_distribution(lines, scenes)
+        self._write_character_screentime(lines, scenes)
+
+        # ---- 分镜详情 ----
+        lines.append("## 分镜详情\n")
+        self._write_scene_details(lines, scenes)
+
+        storyboard_path = review_dir / "storyboard.md"
+        storyboard_path.write_text("\n".join(lines), encoding="utf-8")
+
+    def _write_duration_analysis(
+        self, lines: list[str], scenes: list,
+    ) -> None:
+        """Append duration-per-act table to *lines*."""
+        total_dur = sum(s.duration_seconds for s in scenes)
+        # Group by act_number
+        acts: dict[str, float] = {}
+        for s in scenes:
+            act = s.act_number or "unassigned"
+            acts[act] = acts.get(act, 0.0) + s.duration_seconds
+
+        lines.append("### 时长分布\n")
+        lines.append("| 幕 | 时长 | 占比 |")
+        lines.append("|---|---:|---:|")
+        for act in sorted(acts):
+            dur = acts[act]
+            pct = dur / total_dur * 100 if total_dur else 0
+            label = act.replace("_", " ").title() if act != "unassigned" else "未分配"
+            lines.append(f"| {label} | {dur:.1f}s | {pct:.0f}% |")
+        lines.append(f"| **合计** | **{total_dur:.1f}s** | **100%** |")
+        lines.append("")
+
+    def _write_scale_distribution(
+        self, lines: list[str], scenes: list,
+    ) -> None:
+        """Append shot-scale histogram to *lines*."""
+        counts: dict[str, int] = {}
+        for s in scenes:
+            scale = s.shot_scale.value if s.shot_scale else "unknown"
+            counts[scale] = counts.get(scale, 0) + 1
+
+        lines.append("### 景别分布\n")
+        lines.append("| 景别 | 数量 | 占比 |")
+        lines.append("|---|---:|---:|")
+        total = len(scenes)
+        for scale in ("close_up", "medium_close", "medium", "wide", "extreme_wide", "unknown"):
+            cnt = counts.get(scale, 0)
+            if cnt == 0:
+                continue
+            label = self._SCALE_LABELS.get(scale, scale)
+            pct = cnt / total * 100 if total else 0
+            lines.append(f"| {label} ({scale}) | {cnt} | {pct:.0f}% |")
+        lines.append("")
+
+    def _write_character_screentime(
+        self, lines: list[str], scenes: list,
+    ) -> None:
+        """Append character screen-time table to *lines*."""
+        char_counts: dict[str, int] = {}
+        for s in scenes:
+            for c in s.characters_present:
+                char_counts[c] = char_counts.get(c, 0) + 1
+
+        if not char_counts:
+            return
+
+        lines.append("### 角色出镜\n")
+        lines.append("| 角色 | 出镜场次 | 占比 |")
+        lines.append("|---|---:|---:|")
+        total = len(scenes)
+        for char, cnt in sorted(char_counts.items(), key=lambda x: -x[1]):
+            pct = cnt / total * 100 if total else 0
+            lines.append(f"| {char} | {cnt}/{total} | {pct:.0f}% |")
+        lines.append("")
+
+    def _write_scene_details(
+        self, lines: list[str], scenes: list,
+    ) -> None:
+        """Append per-scene storyboard breakdown grouped by ACT → scene_group."""
+        # Group: act_number → scene_group → [scenes]
+        from collections import OrderedDict
+        groups: dict[str, dict[str, list]] = OrderedDict()
+        for idx, s in enumerate(scenes):
+            act = s.act_number or "unassigned"
+            grp = s.scene_group or "—"
+            groups.setdefault(act, OrderedDict()).setdefault(grp, []).append((idx, s))
+
+        for act, scene_groups in groups.items():
+            act_label = act.replace("_", " ").title() if act != "unassigned" else "未分幕"
+            lines.append(f"### {act_label}\n")
+
+            for grp, indexed_scenes in scene_groups.items():
+                if grp != "—":
+                    lines.append(f"**场景组 {grp}**\n")
+
+                for idx, s in indexed_scenes:
+                    slug = _scene_slug(idx, s.description)
+                    scale = self._SCALE_LABELS.get(
+                        s.shot_scale.value if s.shot_scale else "", ""
+                    )
+                    scale_raw = s.shot_scale.value if s.shot_scale else "n/a"
+                    status = s.scene_status or "pending"
+                    role = s.shot_role or "normal"
+
+                    lines.append(f"#### {slug} · {s.description[:50]} ({s.duration_seconds:.0f}s)  `[{status}]`\n")
+
+                    meta_parts = []
+                    if scale:
+                        meta_parts.append(f"**景别**: {scale} ({scale_raw})")
+                    if s.camera_movement and s.camera_movement != "static":
+                        meta_parts.append(f"**运镜**: {s.camera_movement}")
+                    if s.characters_present:
+                        meta_parts.append(f"**人物**: {', '.join(s.characters_present)}")
+                    if s.emotion:
+                        meta_parts.append(f"**情绪**: {s.emotion}")
+                    if role != "normal":
+                        meta_parts.append(f"**作用**: {role}")
+                    lines.append(" | ".join(meta_parts) + "\n")
+
+                    # Visual description
+                    desc = s.description
+                    if desc:
+                        lines.append(f"> {desc}\n")
+
+                    # Dialogue
+                    if s.dialogue:
+                        speaker = s.speaking_character or "?"
+                        dlg_type = "内心独白" if s.dialogue_line_type == "inner_monologue" else "台词"
+                        lines.append(f'**{dlg_type}** ({speaker}): "{s.dialogue}"\n')
+
+                    # Narration
+                    if s.narration:
+                        nar_type = "旁白" if s.narration_type == "voiceover" else "字幕卡"
+                        lines.append(f"**{nar_type}**: {s.narration}\n")
+
+                    # Transition
+                    if s.transition:
+                        lines.append(f"*转场: {s.transition}*\n")
+
+                    lines.append("---\n")
 
     @staticmethod
     def _collect_all_assets(review_dir: Path) -> dict[str, str]:

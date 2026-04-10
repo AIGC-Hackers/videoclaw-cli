@@ -635,3 +635,131 @@ async def test_review_summary_is_cumulative(tmp_path: Path):
     assert "prompts/" in content2
     assert "1 files" in content2  # prompts still counted
     assert "after_audit" in content2  # last stage updated
+
+
+# ---------------------------------------------------------------------------
+# Storyboard document generation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_storyboard_md_generated(tmp_path: Path):
+    """storyboard.md should be generated with analysis + scene details."""
+    from videoclaw.drama.models import (
+        DramaManager, DramaSeries, DramaScene, Episode,
+    )
+    from videoclaw.drama.models import ShotScale
+
+    series = DramaSeries(
+        series_id="storyboard_test",
+        title="Storyboard Test Drama",
+        genre="male_power_fantasy",
+        synopsis="A test drama.",
+        aspect_ratio="9:16",
+        model_id="seedance-2.0",
+    )
+    scenes = [
+        DramaScene(
+            scene_id="ep01_s01",
+            description="Lucian arrives at the pool",
+            visual_prompt="Tall man in suit walks toward pool.",
+            duration_seconds=5.0,
+            shot_scale=ShotScale.WIDE,
+            camera_movement="slow_push",
+            characters_present=["Lucian", "Ivy"],
+            speaking_character="Lucian",
+            dialogue="I didn't expect to see you here.",
+            emotion="tense",
+            act_number="act_1",
+            scene_group="A",
+            shot_role="hook",
+        ),
+        DramaScene(
+            scene_id="ep01_s02",
+            description="Eye contact across the pool",
+            visual_prompt="Two characters lock eyes.",
+            duration_seconds=4.0,
+            shot_scale=ShotScale.CLOSE_UP,
+            camera_movement="static",
+            characters_present=["Lucian", "Ivy"],
+            emotion="curious",
+            act_number="act_1",
+            scene_group="A",
+        ),
+        DramaScene(
+            scene_id="ep01_s03",
+            description="Ivy turns away sharply",
+            visual_prompt="Woman turns her back.",
+            duration_seconds=3.0,
+            shot_scale=ShotScale.MEDIUM,
+            camera_movement="pan_right",
+            characters_present=["Ivy"],
+            emotion="defiant",
+            act_number="act_2",
+            scene_group="B",
+        ),
+    ]
+    episode = Episode(
+        episode_id="ep1",
+        number=1,
+        title="Pilot",
+        synopsis="test",
+        opening_hook="",
+        scenes=scenes,
+    )
+    series.episodes.append(episode)
+
+    drama_mgr = DramaManager(base_dir=tmp_path)
+    drama_mgr.save(series)
+
+    ckpt_mgr = CheckpointManager(base_dir=tmp_path)
+    ctrl = CheckpointController(
+        series=series,
+        episode=episode,
+        manager=ckpt_mgr,
+        drama_manager=drama_mgr,
+        breakpoints=[],
+        interactive=False,
+    )
+
+    await ctrl.checkpoint(CheckpointStage.AFTER_STORYBOARD, cost_usd=0.0)
+
+    review_dir = tmp_path / "dramas" / "storyboard_test" / "review" / "ep01"
+    storyboard = review_dir / "storyboard.md"
+    assert storyboard.exists()
+
+    content = storyboard.read_text()
+
+    # Title
+    assert "Storyboard Test Drama" in content
+    assert "EP01 分镜表" in content
+
+    # Production analysis
+    assert "制作分析" in content
+    assert "时长分布" in content
+    assert "景别分布" in content
+    assert "角色出镜" in content
+
+    # Duration: 5 + 4 + 3 = 12s
+    assert "12" in content
+
+    # Shot scale labels in Chinese
+    assert "特写" in content       # close_up
+    assert "全景" in content       # wide
+    assert "中景" in content       # medium
+
+    # Character screentime
+    assert "Lucian" in content
+    assert "Ivy" in content
+
+    # Scene details — grouped by act
+    assert "Act 1" in content
+    assert "Act 2" in content
+    assert "场景组 A" in content
+    assert "场景组 B" in content
+
+    # Scene metadata
+    assert "slow_push" in content          # camera movement
+    assert "hook" in content               # shot_role
+    assert "I didn't expect" in content    # dialogue
+    assert "tense" in content              # emotion
