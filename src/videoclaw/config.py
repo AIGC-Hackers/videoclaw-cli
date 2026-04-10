@@ -39,7 +39,7 @@ def get_config() -> Any:
         models_dir: Path = Field(default=Path("./models_cache"))
 
         # --- Model defaults ---
-        default_llm: str = "gpt-4o"
+        default_llm: str = "kimi-k2"
         default_video_model: str = "seedance-2.0"
 
         # --- Language ---

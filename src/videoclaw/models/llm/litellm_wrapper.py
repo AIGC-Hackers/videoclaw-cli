@@ -187,6 +187,14 @@ class LLMClient:
                 if not model.startswith("openai/"):
                     config["model"] = f"openai/{model}"
 
+        elif self._config.evolink_api_key:
+            # Evolink as default gateway — route all unmatched models through
+            # Evolink instead of falling back to OPENAI_API_KEY / ANTHROPIC_API_KEY.
+            config["api_key"] = self._config.evolink_api_key
+            config["api_base"] = self._config.evolink_api_base
+            if not model.startswith("openai/"):
+                config["model"] = f"openai/{model}"
+
         return config
 
     # ------------------------------------------------------------------

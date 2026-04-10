@@ -147,15 +147,22 @@ def config_check() -> None:
     )
     checks["video_api_key"] = {"ok": video_key_ok, "configured": configured}
 
-    # LLM API key (for script/storyboard generation)
+    # LLM API key (for script/storyboard generation) — Evolink preferred
     llm_ok = bool(
-        cfg.openai_api_key
+        cfg.evolink_api_key
+        or cfg.moonshot_api_key
+        or cfg.openai_api_key
         or os.environ.get("OPENAI_API_KEY")
         or cfg.anthropic_api_key
-        or cfg.moonshot_api_key
-        or cfg.evolink_api_key
     )
-    table.add_row("LLM API key", status_icon(llm_ok), "needed for script/storyboard generation")
+    llm_provider = (
+        "evolink (default)" if cfg.evolink_api_key
+        else "moonshot" if cfg.moonshot_api_key
+        else "openai/anthropic (direct)"
+        if (cfg.openai_api_key or os.environ.get("OPENAI_API_KEY") or cfg.anthropic_api_key)
+        else "none configured"
+    )
+    table.add_row("LLM API key", status_icon(llm_ok), f"{llm_provider} — needed for script/storyboard generation")
     checks["llm_api_key"] = {"ok": llm_ok}
 
     # Image generation key (for character/scene references)
