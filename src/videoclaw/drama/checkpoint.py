@@ -80,24 +80,23 @@ def _scene_slug(index: int, description: str) -> str:
 def review_dir_for_episode(
     series: DramaSeries,
     episode: Episode,
-    base_dir: Path | None = None,
+    base_dir: Path,
 ) -> Path:
     """Compute the cumulative review directory for an episode.
 
-    The review directory lives under ``deliverables_dir`` (default
-    ``docs/deliverables/``) at the project root — the most visible
-    location for producers.  No UUIDs in the path.
+    The review directory lives under *base_dir* (typically
+    ``get_config().deliverables_dir`` → ``docs/deliverables/`` at the
+    project root — the most visible location for producers).  No UUIDs
+    in the path.
 
     Layout::
 
-        docs/deliverables/{series_slug}/ep{NN}_{ep_slug}/
+        {base_dir}/{series_slug}/ep{NN}_{ep_slug}/
 
-    Can be called standalone (e.g. right after import) without a full
-    :class:`CheckpointController`.
+    ``base_dir`` is **required** — no silent fallback to config.  This
+    prevents test fixtures from leaking into the production deliverables
+    directory when callers forget to pass it.
     """
-    if base_dir is None:
-        from videoclaw.config import get_config
-        base_dir = get_config().deliverables_dir
     series_slug = _slugify(series.title) or series.series_id[:8]
     ep_num = episode.number
     ep_slug = _slugify(episode.title, max_len=20)
@@ -120,16 +119,17 @@ _SCALE_LABELS: dict[str, str] = {
 def generate_storyboard_md(
     series: DramaSeries,
     episode: Episode,
-    review_dir: Path | None = None,
-    base_dir: Path | None = None,
+    review_dir: Path,
 ) -> Path:
     """Generate ``storyboard.md`` into the review directory.
 
     Callable standalone — no :class:`CheckpointController` needed.
     Returns the path to the written ``storyboard.md``.
+
+    ``review_dir`` is **required**.  Callers must compute the target
+    directory explicitly (typically via :func:`review_dir_for_episode`).
+    This prevents silent writes to a config-driven default.
     """
-    if review_dir is None:
-        review_dir = review_dir_for_episode(series, episode, base_dir)
     review_dir.mkdir(parents=True, exist_ok=True)
 
     scenes = episode.scenes
@@ -618,6 +618,12 @@ class CheckpointController:
         self.episode = episode
         self.manager = manager
         self.drama_manager = drama_manager
+
+        # Resolve deliverables_dir now (not lazily) so downstream code can
+        # rely on a concrete Path. None → read from config once.
+        if deliverables_dir is None:
+            from videoclaw.config import get_config
+            deliverables_dir = get_config().deliverables_dir
         self._deliverables_dir = deliverables_dir
 
         # None → pause at all; empty list → pause at none (auto)
@@ -657,7 +663,14 @@ class CheckpointController:
 
         Returns the action selected by the human, or CONTINUE in auto mode.
         """
-        # 1. Update cumulative review directory (additive, not destructive)
+        # 1. Sync generated assets from ProjectState → DramaScene state.
+        # Video/audio outputs live in projects/{project_id}/ but scene
+        # metadata (video_asset_path, scene_status) must be updated before
+        # we build the review directory — otherwise the review would see
+        # stale "pending" scenes even after successful generation.
+        self._sync_scene_assets_from_project_state()
+
+        # 2. Update cumulative review directory (additive, not destructive)
         review_dir, assets = self._update_review_dir(stage)
 
         # 2. Build snapshot
@@ -705,29 +718,115 @@ class CheckpointController:
     # Semantic review snapshot
     # ------------------------------------------------------------------
 
-    # Stage → subdirectories to update (only these are touched per checkpoint)
+    # Stage → subdirectories to update (only these are touched per checkpoint).
+    # storyboard.md is always regenerated at every stage (handled separately).
     _STAGE_SUBDIRS: dict[str, list[str]] = {
-        "after_design":     ["characters"],
-        "after_refresh":    ["characters"],
-        "after_storyboard": ["prompts"],
+        "after_design":     ["characters", "scenes"],
+        "after_refresh":    ["characters", "scenes"],
+        "after_storyboard": [],
         "after_video_tts":  ["videos", "audio"],
-        "after_generation": ["videos", "audio", "composed"],
-        "after_compose":    ["composed"],
+        "after_generation": ["videos", "audio", "final"],
+        "after_compose":    ["final"],
         "after_audit":      ["audit"],
     }
 
-    # All subdirectories that exist in the review folder
-    _ALL_SUBDIRS = ("characters", "prompts", "videos", "audio", "audit", "composed")
+    # All subdirectories that may appear in the review folder.
+    # Subdirectories are created lazily — they only exist if they have content.
+    _ALL_SUBDIRS = ("characters", "scenes", "audio", "videos", "audit", "final")
+
+    # ------------------------------------------------------------------
+    # Asset sync: ProjectState → DramaScene
+    # ------------------------------------------------------------------
+
+    def _sync_scene_assets_from_project_state(self) -> None:
+        """Copy generated asset paths from ProjectState shots → DramaScene.
+
+        The DAG executor writes generated video files to
+        ``projects/{project_id}/shots/`` and updates
+        ``ProjectState.storyboard[].asset_path``.  But the
+        ``DramaSeries.episodes[].scenes[]`` (what the review directory
+        reads from) is a separate object and doesn't get updated.
+
+        This sync is idempotent and cheap — it only copies when:
+        - the scene has a matching project_id
+        - the shot has a non-null asset_path
+        - the file on disk still exists
+
+        After syncing, the updated series is persisted so subsequent
+        checkpoints and CLI commands see the latest state.
+        """
+        if not self.episode.project_id:
+            return
+
+        from videoclaw.core.state import StateManager
+
+        try:
+            state = StateManager().load(self.episode.project_id)
+        except FileNotFoundError:
+            return
+
+        shot_map = {s.shot_id: s for s in state.storyboard}
+        changed = False
+
+        for scene in self.episode.scenes:
+            shot = shot_map.get(scene.scene_id)
+            if shot is None:
+                continue
+
+            # Sync video path if missing or stale
+            if shot.asset_path and Path(shot.asset_path).exists():
+                if scene.video_asset_path != shot.asset_path:
+                    scene.video_asset_path = shot.asset_path
+                    changed = True
+                if shot.status.value == "completed" and scene.scene_status != "completed":
+                    scene.scene_status = "completed"
+                    changed = True
+
+        # Sync audio files from projects/{project_id}/audio/ by filename match.
+        # TTS handlers write to {audio_dir}/{scene_id}_dialogue.{ext} and
+        # {scene_id}_narration.{ext} — pick up whatever is there.
+        from videoclaw.config import get_config
+        audio_dir = Path(get_config().projects_dir) / self.episode.project_id / "audio"
+        if audio_dir.is_dir():
+            for scene in self.episode.scenes:
+                for f in audio_dir.iterdir():
+                    if not f.is_file():
+                        continue
+                    name = f.name
+                    if scene.scene_id not in name:
+                        continue
+                    if "dialogue" in name and scene.dialogue_audio_path != str(f):
+                        scene.dialogue_audio_path = str(f)
+                        changed = True
+                    elif "narration" in name and scene.narration_audio_path != str(f):
+                        scene.narration_audio_path = str(f)
+                        changed = True
+
+        if changed:
+            try:
+                self.drama_manager.save(self.series)
+                logger.info(
+                    "Synced scene assets from ProjectState %s → series %s",
+                    self.episode.project_id, self.series.series_id,
+                )
+            except OSError:
+                logger.exception("Failed to persist synced scene assets")
 
     def _update_review_dir(
         self, stage: CheckpointStage,
     ) -> tuple[Path, dict[str, str]]:
         """Incrementally update the cumulative review directory.
 
-        One directory per episode: ``review/ep{NN}/``.  Each checkpoint
-        only touches the subdirectories relevant to its stage.  Existing
-        files from earlier stages are preserved.  When a file is replaced
-        (e.g. redo), the old version is renamed to ``{name}_v{N}{ext}``.
+        One directory per episode: ``{deliverables_dir}/{drama}/{ep}/``.
+        Each checkpoint only touches the subdirectories relevant to its
+        stage.  Existing files from earlier stages are preserved.  When
+        a file is replaced (e.g. redo), the old version is renamed to
+        ``{name}_v{N}{ext}``.
+
+        Subdirectories are created **lazily**: the ``_update_*`` helpers
+        only ``mkdir`` when they actually have content to write.  This
+        keeps the review folder free of empty placeholder directories
+        so ``ls`` shows exactly what has been produced.
 
         Returns ``(review_dir_path, assets_dict)`` where assets_dict
         contains ALL files currently in the review directory (cumulative).
@@ -738,10 +837,8 @@ class CheckpointController:
             self.series, self.episode, base_dir=self._deliverables_dir,
         )
 
-        # Create all subdirectories on first call (idempotent)
+        # Only create the root — subdirectories are lazy
         review_dir.mkdir(parents=True, exist_ok=True)
-        for subdir in self._ALL_SUBDIRS:
-            (review_dir / subdir).mkdir(exist_ok=True)
 
         # Only update subdirectories relevant to this stage
         active_subdirs = set(self._STAGE_SUBDIRS.get(stage.value, []))
@@ -749,8 +846,8 @@ class CheckpointController:
         if "characters" in active_subdirs:
             self._update_characters(review_dir / "characters")
 
-        if "prompts" in active_subdirs:
-            self._update_prompts(review_dir / "prompts")
+        if "scenes" in active_subdirs:
+            self._update_scenes(review_dir / "scenes")
 
         if "videos" in active_subdirs:
             self._update_videos(review_dir / "videos", projects_dir)
@@ -761,8 +858,8 @@ class CheckpointController:
         if "audit" in active_subdirs:
             self._update_audit(review_dir / "audit", series_dir)
 
-        if "composed" in active_subdirs:
-            self._update_composed(review_dir / "composed", series_dir)
+        if "final" in active_subdirs:
+            self._update_final(review_dir / "final", series_dir)
 
         # Storyboard: always regenerated (cheap text, reflects latest state)
         self._update_storyboard(review_dir)
@@ -772,40 +869,50 @@ class CheckpointController:
         return review_dir, assets
 
     # -- Per-subdirectory updaters (only called for relevant stages) --
+    #
+    # Every updater must ``mkdir(parents=True, exist_ok=True)`` *only* before
+    # writing the first file / symlink, so empty subdirectories never appear.
 
     def _update_characters(self, chars_dir: Path) -> None:
         for char in self.series.characters:
             if char.reference_image:
                 src = Path(char.reference_image)
                 if src.exists():
+                    chars_dir.mkdir(parents=True, exist_ok=True)
                     name = f"{_slugify(char.name)}_turnaround{src.suffix}"
                     _safe_symlink(src, chars_dir / name)
             url = getattr(char, "reference_image_url", None)
             if url:
+                chars_dir.mkdir(parents=True, exist_ok=True)
                 url_file = chars_dir / f"{_slugify(char.name)}_url.txt"
                 url_file.write_text(url, encoding="utf-8")
 
-    def _update_prompts(self, prompts_dir: Path) -> None:
-        for idx, scene in enumerate(self.episode.scenes):
-            slug = _scene_slug(idx, scene.description)
-            prompt_file = prompts_dir / f"{slug}.txt"
-            prompt_file.write_text(
-                f"Scene: {scene.scene_id}\n"
-                f"Description: {scene.description}\n"
-                f"Duration: {scene.duration_seconds}s\n"
-                f"Characters: {', '.join(scene.characters_present)}\n"
-                f"Dialogue: {scene.dialogue}\n"
-                f"Camera: {scene.camera_movement}\n"
-                f"Shot scale: {scene.shot_scale.value if scene.shot_scale else 'n/a'}\n"
-                f"\n--- Prompt ---\n{scene.effective_prompt}\n",
-                encoding="utf-8",
-            )
+    def _update_scenes(self, scenes_dir: Path) -> None:
+        """Symlink scene/location reference images (景别图 / 场景参考图).
+
+        Reads from ``series.consistency_manifest.scene_references`` which
+        is populated by ``scene_designer.py`` during the design stage.
+        Gracefully no-ops when the manifest is empty or absent.
+        """
+        manifest = getattr(self.series, "consistency_manifest", None)
+        refs = getattr(manifest, "scene_references", None) or {}
+        for loc_name, ref_path in refs.items():
+            if not ref_path:
+                continue
+            src = Path(ref_path)
+            if not src.exists():
+                continue
+            scenes_dir.mkdir(parents=True, exist_ok=True)
+            slug = _slugify(loc_name, max_len=40) or "location"
+            dst = scenes_dir / f"{slug}{src.suffix}"
+            _safe_symlink(src, dst)
 
     def _update_videos(self, videos_dir: Path, projects_dir: Path) -> None:
         for idx, scene in enumerate(self.episode.scenes):
             if scene.video_asset_path:
                 src = Path(scene.video_asset_path)
                 if src.exists():
+                    videos_dir.mkdir(parents=True, exist_ok=True)
                     slug = _scene_slug(idx, scene.description)
                     dst = videos_dir / f"{slug}{src.suffix}"
                     _safe_symlink(src, dst, keep_versions=True)
@@ -820,6 +927,7 @@ class CheckpointController:
                         continue
                     for sid, (i, sc) in scene_map.items():
                         if sid in f.name:
+                            videos_dir.mkdir(parents=True, exist_ok=True)
                             slug = _scene_slug(i, sc.description)
                             dst = videos_dir / f"{slug}{f.suffix}"
                             if not (dst.exists() or dst.is_symlink()):
@@ -832,10 +940,12 @@ class CheckpointController:
             if scene.dialogue_audio_path:
                 src = Path(scene.dialogue_audio_path)
                 if src.exists():
+                    audio_dir.mkdir(parents=True, exist_ok=True)
                     _safe_symlink(src, audio_dir / f"{slug}_dialogue{src.suffix}", keep_versions=True)
             if scene.narration_audio_path:
                 src = Path(scene.narration_audio_path)
                 if src.exists():
+                    audio_dir.mkdir(parents=True, exist_ok=True)
                     _safe_symlink(src, audio_dir / f"{slug}_narration{src.suffix}", keep_versions=True)
 
     def _update_audit(self, audit_dir: Path, series_dir: Path) -> None:
@@ -844,15 +954,22 @@ class CheckpointController:
         if audit_src.is_dir():
             for f in sorted(audit_src.iterdir()):
                 if f.suffix.lower() in (".json", ".jsonl"):
+                    audit_dir.mkdir(parents=True, exist_ok=True)
                     _safe_symlink(f, audit_dir / f.name)
 
-    def _update_composed(self, composed_dir: Path, series_dir: Path) -> None:
+    def _update_final(self, final_dir: Path, series_dir: Path) -> None:
+        """Symlink the composed episode video into ``final/``.
+
+        Previously named ``_update_composed`` with a ``composed/`` subdir;
+        renamed to match producer vocabulary (成片 = final).
+        """
         ep_prefix = f"ep{self.episode.number:02d}"
         video_src = series_dir / f"{ep_prefix}_video"
         if video_src.is_dir():
             for f in video_src.iterdir():
                 if "final" in f.name.lower() or "composed" in f.name.lower():
-                    _safe_symlink(f, composed_dir / f.name, keep_versions=True)
+                    final_dir.mkdir(parents=True, exist_ok=True)
+                    _safe_symlink(f, final_dir / f.name, keep_versions=True)
 
     # ------------------------------------------------------------------
     # Storyboard document — delegates to module-level functions
@@ -878,7 +995,7 @@ class CheckpointController:
         """Write a human-readable _REVIEW.txt with full cumulative state."""
         remaining = ", ".join(snapshot.remaining_stages) or "(done)"
 
-        # Count files per subdirectory
+        # Count files per subdirectory (missing subdirs are simply absent)
         subdir_counts: dict[str, int] = {}
         for subdir in self._ALL_SUBDIRS:
             d = review_dir / subdir
@@ -889,11 +1006,11 @@ class CheckpointController:
 
         _SUBDIR_LABELS = {
             "characters": "turnaround sheets + reference URLs",
-            "prompts":    "editable visual prompts per scene",
+            "scenes":     "location / shot framing references",
             "videos":     "generated video clips",
             "audio":      "dialogue + narration audio",
             "audit":      "vision QA reports",
-            "composed":   "composed final video",
+            "final":      "composed episode video",
         }
 
         lines = [

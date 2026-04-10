@@ -515,7 +515,7 @@ async def test_controller_cumulative_review_dir(tmp_path: Path):
         deliverables_dir=tmp_path,
     )
 
-    # --- Checkpoint 1: after_design (populates characters/) ---
+    # --- Checkpoint 1: after_design (populates no subdirs — empty) ---
     await ctrl.checkpoint(
         CheckpointStage.AFTER_DESIGN,
         cost_usd=0.1,
@@ -524,38 +524,42 @@ async def test_controller_cumulative_review_dir(tmp_path: Path):
 
     review_dir = tmp_path / "cumulative_test" / "ep01_pilot"
     assert review_dir.is_dir()
+    assert (review_dir / "storyboard.md").exists()
+    assert (review_dir / "_REVIEW.txt").exists()
 
-    # All subdirs should exist (created on first call)
-    for subdir in ("characters", "prompts", "videos", "audio", "audit", "composed"):
-        assert (review_dir / subdir).is_dir()
+    # --- Pre-checkpoint 2: simulate generated videos by setting scene.video_asset_path ---
+    fake_video1 = tmp_path / "fake_s01.mp4"
+    fake_video2 = tmp_path / "fake_s02.mp4"
+    fake_video1.write_bytes(b"v1")
+    fake_video2.write_bytes(b"v2")
+    scene1.video_asset_path = str(fake_video1)
+    scene2.video_asset_path = str(fake_video2)
 
-    # Prompts should be EMPTY (after_design doesn't populate prompts)
-    assert list((review_dir / "prompts").iterdir()) == []
-
-    # --- Checkpoint 2: after_storyboard (populates prompts/) ---
+    # --- Checkpoint 2: after_generation (populates videos/) ---
     await ctrl.checkpoint(
-        CheckpointStage.AFTER_STORYBOARD,
+        CheckpointStage.AFTER_GENERATION,
         cost_usd=0.2,
-        remaining_stages=["run"],
+        remaining_stages=[],
     )
 
     # Review dir is the SAME path (cumulative, not a new directory)
     assert review_dir.is_dir()
 
-    # Prompts should now have files
-    prompt_files = sorted((review_dir / "prompts").iterdir())
-    assert len(prompt_files) == 2
-    assert "s01_poolside_arrival_at_sunset" in prompt_files[0].name
-    assert "s02_eye_contact_across_pool" in prompt_files[1].name
+    # Videos should now have files (populated by after_generation)
+    videos_dir = review_dir / "videos"
+    assert videos_dir.is_dir()
+    video_files = sorted(videos_dir.iterdir())
+    assert len(video_files) == 2
+    assert "s01_poolside_arrival_at_sunset" in video_files[0].name
+    assert "s02_eye_contact_across_pool" in video_files[1].name
 
-    # _REVIEW.txt should reflect latest state
+    # _REVIEW.txt reflects latest state
     summary = review_dir / "_REVIEW.txt"
     assert summary.exists()
     content = summary.read_text()
     assert "Cumulative Test" in content
-    assert "after_storyboard" in content  # last stage
-    assert "prompts/" in content
-    assert "characters/" in content
+    assert "after_generation" in content  # last stage
+    assert "videos/" in content
 
 
 @pytest.mark.asyncio
@@ -624,21 +628,26 @@ async def test_review_summary_is_cumulative(tmp_path: Path):
         deliverables_dir=tmp_path,
     )
 
-    # Checkpoint 1: after_storyboard → populates prompts/
-    await ctrl.checkpoint(CheckpointStage.AFTER_STORYBOARD, cost_usd=0.1)
+    # Checkpoint 1: pre-set video path and call after_generation → populates videos/
+    fake_video = tmp_path / "fake.mp4"
+    fake_video.write_bytes(b"v")
+    scene.video_asset_path = str(fake_video)
+
+    await ctrl.checkpoint(CheckpointStage.AFTER_GENERATION, cost_usd=0.1)
 
     review_dir = tmp_path / "summary_test" / "ep01_pilot"
     content = (review_dir / "_REVIEW.txt").read_text()
-    assert "prompts/" in content
-    assert "1 files" in content  # 1 prompt file
+    assert "videos/" in content
+    assert "1 files" in content  # 1 video file
+    assert "after_generation" in content
 
-    # Checkpoint 2: after_audit → populates audit/ (empty in this case)
+    # Checkpoint 2: after_audit → no audit files, but summary still cumulative
     await ctrl.checkpoint(CheckpointStage.AFTER_AUDIT, cost_usd=0.3)
 
     content2 = (review_dir / "_REVIEW.txt").read_text()
-    # Should still show prompts count from earlier stage
-    assert "prompts/" in content2
-    assert "1 files" in content2  # prompts still counted
+    # Videos count from earlier stage still reflected (cumulative)
+    assert "videos/" in content2
+    assert "1 files" in content2
     assert "after_audit" in content2  # last stage updated
 
 
@@ -811,3 +820,368 @@ async def test_generate_storyboard_md_standalone(tmp_path: Path):
     assert "EP01 分镜表" in content
     assert "Jake" in content
     assert "6" in content  # duration
+
+
+# ---------------------------------------------------------------------------
+# Base dir required invariant (prevents test leakage into real deliverables dir)
+# ---------------------------------------------------------------------------
+
+
+def test_review_dir_for_episode_requires_base_dir():
+    """review_dir_for_episode must require explicit base_dir.
+
+    Without this, callers silently fall back to ``get_config().deliverables_dir``
+    which is the real ``docs/deliverables/`` — causing test fixtures to leak
+    into the production review directory.
+    """
+    from videoclaw.drama.checkpoint import review_dir_for_episode
+    from videoclaw.drama.models import DramaSeries, Episode
+
+    series = DramaSeries(
+        series_id="req_bd_test",
+        title="Req BaseDir Test",
+        genre="test",
+        synopsis="test",
+    )
+    episode = Episode(
+        episode_id="ep1",
+        number=1,
+        title="Pilot",
+        synopsis="",
+        opening_hook="",
+        scenes=[],
+    )
+
+    with pytest.raises(TypeError, match="base_dir"):
+        review_dir_for_episode(series, episode)  # type: ignore[call-arg]
+
+
+def test_generate_storyboard_md_requires_review_dir():
+    """generate_storyboard_md must require explicit review_dir.
+
+    No silent fallback to config-driven paths — the caller must supply
+    the exact directory to write into.
+    """
+    from videoclaw.drama.models import DramaSeries, Episode
+
+    series = DramaSeries(
+        series_id="req_rd_test",
+        title="Req ReviewDir Test",
+        genre="test",
+        synopsis="test",
+    )
+    episode = Episode(
+        episode_id="ep1",
+        number=1,
+        title="Pilot",
+        synopsis="",
+        opening_hook="",
+        scenes=[],
+    )
+
+    with pytest.raises(TypeError, match="review_dir"):
+        generate_storyboard_md(series, episode)  # type: ignore[call-arg]
+
+
+# ---------------------------------------------------------------------------
+# Lazy subdir creation (no empty placeholder directories)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_lazy_subdir_creation_after_design(tmp_path: Path):
+    """after_design stage should only create subdirs that actually receive content.
+
+    Previously, ALL subdirectories (characters, videos, audio, audit, final, scenes)
+    were mkdir'd up-front, leaving empty placeholder folders. This created
+    visual noise and made ``ls`` output misleading.
+
+    New contract: a subdirectory exists if and only if it has at least one
+    file or symlink in it.
+    """
+    from videoclaw.drama.models import DramaManager, DramaScene, DramaSeries, Episode
+
+    series = DramaSeries(
+        series_id="lazy_mkdir_test",
+        title="Lazy Mkdir Test",
+        genre="test",
+        synopsis="test",
+    )
+    scene = DramaScene(
+        scene_id="ep01_s01",
+        description="A quiet moment",
+        visual_prompt="A silent room.",
+    )
+    episode = Episode(
+        episode_id="ep1",
+        number=1,
+        title="Pilot",
+        synopsis="test",
+        opening_hook="",
+        scenes=[scene],
+    )
+    series.episodes.append(episode)
+
+    drama_mgr = DramaManager(base_dir=tmp_path)
+    drama_mgr.save(series)
+
+    ckpt_mgr = CheckpointManager(base_dir=tmp_path)
+    ctrl = CheckpointController(
+        series=series,
+        episode=episode,
+        manager=ckpt_mgr,
+        drama_manager=drama_mgr,
+        breakpoints=[],
+        interactive=False,
+        deliverables_dir=tmp_path,
+    )
+
+    await ctrl.checkpoint(CheckpointStage.AFTER_DESIGN, cost_usd=0.1)
+
+    review_dir = tmp_path / "lazy_mkdir_test" / "ep01_pilot"
+    assert review_dir.is_dir()
+    assert (review_dir / "storyboard.md").exists()
+    assert (review_dir / "_REVIEW.txt").exists()
+
+    # Subdirs that have no content must NOT exist on disk
+    for empty in ("characters", "videos", "audio", "audit", "final", "scenes"):
+        assert not (review_dir / empty).exists(), (
+            f"{empty}/ should not exist when stage produced no content"
+        )
+
+    # And the old layout's dirs must never appear
+    assert not (review_dir / "prompts").exists()
+    assert not (review_dir / "composed").exists()
+
+
+# ---------------------------------------------------------------------------
+# Incremental asset sync at checkpoint time
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_syncs_video_asset_path_from_project_state(
+    tmp_path, monkeypatch,
+):
+    """After generation, checkpoint copies Shot.asset_path → DramaScene.video_asset_path.
+
+    Without this sync, the review directory would see ``scene_status=pending``
+    even after videos were successfully written to disk by the DAG executor.
+    """
+    from videoclaw.config import get_config
+    from videoclaw.core.state import ProjectState, Shot, ShotStatus, StateManager
+    from videoclaw.drama.models import (
+        DramaManager,
+        DramaScene,
+        DramaSeries,
+        Episode,
+    )
+
+    # Redirect projects_dir to tmp_path via config singleton
+    monkeypatch.setattr(get_config(), "projects_dir", tmp_path)
+    drama_mgr = DramaManager(base_dir=tmp_path)
+
+    series = DramaSeries(
+        series_id="sync_test",
+        title="Sync Test",
+        genre="test",
+        synopsis="test",
+    )
+    scene1 = DramaScene(
+        scene_id="ep01_s01",
+        description="Opening shot",
+        visual_prompt="A dramatic opening.",
+    )
+    scene2 = DramaScene(
+        scene_id="ep01_s02",
+        description="Second shot",
+        visual_prompt="A reaction.",
+    )
+    episode = Episode(
+        episode_id="ep1",
+        number=1,
+        title="Pilot",
+        synopsis="test",
+        opening_hook="",
+        scenes=[scene1, scene2],
+        project_id="test_proj_001",
+    )
+    series.episodes.append(episode)
+    drama_mgr.save(series)
+
+    # Create fake generated videos on disk
+    proj_dir = tmp_path / "test_proj_001"
+    shots_dir = proj_dir / "shots"
+    shots_dir.mkdir(parents=True)
+    video1 = shots_dir / "ep01_s01_abc123.mp4"
+    video2 = shots_dir / "ep01_s02_def456.mp4"
+    video1.write_bytes(b"fake_video_1")
+    video2.write_bytes(b"fake_video_2")
+
+    # Create ProjectState with shots pointing to those videos
+    state = ProjectState(project_id="test_proj_001", prompt="test")
+    state.storyboard = [
+        Shot(
+            shot_id="ep01_s01",
+            description="",
+            prompt="test",
+            asset_path=str(video1),
+            status=ShotStatus.COMPLETED,
+        ),
+        Shot(
+            shot_id="ep01_s02",
+            description="",
+            prompt="test",
+            asset_path=str(video2),
+            status=ShotStatus.COMPLETED,
+        ),
+    ]
+    sm = StateManager(projects_dir=tmp_path)
+    sm.save(state)
+
+    # Pre-sync: scene paths should still be None
+    assert scene1.video_asset_path is None
+    assert scene2.video_asset_path is None
+
+    # Run a checkpoint → triggers sync
+    ckpt_mgr = CheckpointManager(base_dir=tmp_path)
+    ctrl = CheckpointController(
+        series=series,
+        episode=episode,
+        manager=ckpt_mgr,
+        drama_manager=drama_mgr,
+        breakpoints=[],
+        interactive=False,
+        deliverables_dir=tmp_path,
+    )
+
+    await ctrl.checkpoint(
+        CheckpointStage.AFTER_GENERATION,
+        cost_usd=1.0,
+        remaining_stages=[],
+    )
+
+    # Post-sync: scene paths populated + status updated
+    assert scene1.video_asset_path == str(video1)
+    assert scene2.video_asset_path == str(video2)
+    assert scene1.scene_status == "completed"
+    assert scene2.scene_status == "completed"
+
+    # Persistence check
+    reloaded = drama_mgr.load("sync_test")
+    assert reloaded.episodes[0].scenes[0].video_asset_path == str(video1)
+    assert reloaded.episodes[0].scenes[1].video_asset_path == str(video2)
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_sync_skips_when_no_project_id(tmp_path: Path):
+    """Sync is a no-op for episodes without project_id (pre-generation)."""
+    from videoclaw.drama.models import (
+        DramaManager,
+        DramaScene,
+        DramaSeries,
+        Episode,
+    )
+
+    series = DramaSeries(
+        series_id="noproj_test",
+        title="No Project Test",
+        genre="test",
+        synopsis="test",
+    )
+    episode = Episode(
+        episode_id="ep1",
+        number=1,
+        title="Pilot",
+        synopsis="",
+        opening_hook="",
+        scenes=[DramaScene(scene_id="ep01_s01", description="test")],
+        # no project_id — no pipeline run yet
+    )
+    series.episodes.append(episode)
+
+    drama_mgr = DramaManager(base_dir=tmp_path)
+    drama_mgr.save(series)
+
+    ckpt_mgr = CheckpointManager(base_dir=tmp_path)
+    ctrl = CheckpointController(
+        series=series,
+        episode=episode,
+        manager=ckpt_mgr,
+        drama_manager=drama_mgr,
+        breakpoints=[],
+        interactive=False,
+        deliverables_dir=tmp_path,
+    )
+
+    # Should not raise — pre-generation stages just skip sync
+    action = await ctrl.checkpoint(
+        CheckpointStage.AFTER_DESIGN,
+        cost_usd=0.0,
+    )
+    assert action == CheckpointAction.CONTINUE
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_syncs_audio_files(tmp_path, monkeypatch):
+    """Audio files in projects/{project_id}/audio/ are matched to scenes by filename."""
+    from videoclaw.config import get_config
+    from videoclaw.core.state import ProjectState, StateManager
+    from videoclaw.drama.models import (
+        DramaManager,
+        DramaScene,
+        DramaSeries,
+        Episode,
+    )
+
+    monkeypatch.setattr(get_config(), "projects_dir", tmp_path)
+    drama_mgr = DramaManager(base_dir=tmp_path)
+
+    series = DramaSeries(
+        series_id="audio_sync_test",
+        title="Audio Sync Test",
+        genre="test",
+        synopsis="test",
+    )
+    scene = DramaScene(
+        scene_id="ep01_s01",
+        description="Dialogue shot",
+        visual_prompt="A character speaks.",
+        dialogue="Hello world",
+    )
+    episode = Episode(
+        episode_id="ep1",
+        number=1,
+        title="Pilot",
+        synopsis="test",
+        opening_hook="",
+        scenes=[scene],
+        project_id="audio_proj_001",
+    )
+    series.episodes.append(episode)
+    drama_mgr.save(series)
+
+    # Create audio files on disk
+    audio_dir = tmp_path / "audio_proj_001" / "audio"
+    audio_dir.mkdir(parents=True)
+    dialogue_wav = audio_dir / "ep01_s01_dialogue.wav"
+    dialogue_wav.write_bytes(b"fake_audio")
+
+    # Create empty ProjectState (sync still reads audio dir directly)
+    state = ProjectState(project_id="audio_proj_001", prompt="test")
+    StateManager(projects_dir=tmp_path).save(state)
+
+    ckpt_mgr = CheckpointManager(base_dir=tmp_path)
+    ctrl = CheckpointController(
+        series=series,
+        episode=episode,
+        manager=ckpt_mgr,
+        drama_manager=drama_mgr,
+        breakpoints=[],
+        interactive=False,
+        deliverables_dir=tmp_path,
+    )
+
+    await ctrl.checkpoint(CheckpointStage.AFTER_GENERATION, cost_usd=0.5)
+
+    assert scene.dialogue_audio_path == str(dialogue_wav)
