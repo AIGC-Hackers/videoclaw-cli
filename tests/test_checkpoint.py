@@ -233,6 +233,7 @@ async def test_controller_auto_mode_saves_and_continues(tmp_path: Path):
         drama_manager=drama_mgr,
         breakpoints=[],  # auto mode
         interactive=False,
+        deliverables_dir=tmp_path,
     )
 
     action = await ctrl.checkpoint(
@@ -281,6 +282,7 @@ async def test_controller_does_not_pause_when_non_interactive(tmp_path: Path):
         drama_manager=drama_mgr,
         breakpoints=None,  # all breakpoints
         interactive=False,  # but non-interactive
+        deliverables_dir=tmp_path,
     )
 
     action = await ctrl.checkpoint(
@@ -510,6 +512,7 @@ async def test_controller_cumulative_review_dir(tmp_path: Path):
         drama_manager=drama_mgr,
         breakpoints=[],
         interactive=False,
+        deliverables_dir=tmp_path,
     )
 
     # --- Checkpoint 1: after_design (populates characters/) ---
@@ -519,7 +522,7 @@ async def test_controller_cumulative_review_dir(tmp_path: Path):
         remaining_stages=["run"],
     )
 
-    review_dir = tmp_path / "dramas" / "cumul_test" / "review" / "cumulative_test__ep01_pilot"
+    review_dir = tmp_path / "cumulative_test" / "ep01_pilot"
     assert review_dir.is_dir()
 
     # All subdirs should exist (created on first call)
@@ -618,12 +621,13 @@ async def test_review_summary_is_cumulative(tmp_path: Path):
         drama_manager=drama_mgr,
         breakpoints=[],
         interactive=False,
+        deliverables_dir=tmp_path,
     )
 
     # Checkpoint 1: after_storyboard → populates prompts/
     await ctrl.checkpoint(CheckpointStage.AFTER_STORYBOARD, cost_usd=0.1)
 
-    review_dir = tmp_path / "dramas" / "summary_test" / "review" / "summary_test__ep01_pilot"
+    review_dir = tmp_path / "summary_test" / "ep01_pilot"
     content = (review_dir / "_REVIEW.txt").read_text()
     assert "prompts/" in content
     assert "1 files" in content  # 1 prompt file
@@ -721,11 +725,12 @@ async def test_storyboard_md_generated(tmp_path: Path):
         drama_manager=drama_mgr,
         breakpoints=[],
         interactive=False,
+        deliverables_dir=tmp_path,
     )
 
     await ctrl.checkpoint(CheckpointStage.AFTER_STORYBOARD, cost_usd=0.0)
 
-    review_dir = tmp_path / "dramas" / "storyboard_test" / "review" / "storyboard_test_drama__ep01_pilot"
+    review_dir = tmp_path / "storyboard_test_drama" / "ep01_pilot"
     storyboard = review_dir / "storyboard.md"
     assert storyboard.exists()
 

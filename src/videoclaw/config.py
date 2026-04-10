@@ -37,6 +37,7 @@ def get_config() -> Any:
         # --- Directories ---
         projects_dir: Path = Field(default=Path("./projects"))
         models_dir: Path = Field(default=Path("./models_cache"))
+        deliverables_dir: Path = Field(default=Path("./docs/deliverables"))
 
         # --- Model defaults ---
         default_llm: str = "kimi-k2"

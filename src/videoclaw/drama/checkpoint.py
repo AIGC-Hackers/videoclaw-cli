@@ -84,20 +84,27 @@ def review_dir_for_episode(
 ) -> Path:
     """Compute the cumulative review directory for an episode.
 
+    The review directory lives under ``deliverables_dir`` (default
+    ``docs/deliverables/``) at the project root — the most visible
+    location for producers.  No UUIDs in the path.
+
+    Layout::
+
+        docs/deliverables/{series_slug}/ep{NN}_{ep_slug}/
+
     Can be called standalone (e.g. right after import) without a full
     :class:`CheckpointController`.
     """
     if base_dir is None:
         from videoclaw.config import get_config
-        base_dir = get_config().projects_dir
-    series_dir = base_dir / "dramas" / series.series_id
-    ep_num = episode.number
+        base_dir = get_config().deliverables_dir
     series_slug = _slugify(series.title) or series.series_id[:8]
+    ep_num = episode.number
     ep_slug = _slugify(episode.title, max_len=20)
-    dir_name = f"{series_slug}__ep{ep_num:02d}"
+    ep_dir = f"ep{ep_num:02d}"
     if ep_slug:
-        dir_name += f"_{ep_slug}"
-    return series_dir / "review" / dir_name
+        ep_dir += f"_{ep_slug}"
+    return base_dir / series_slug / ep_dir
 
 
 # Scale labels shared between standalone generator and controller
@@ -605,11 +612,13 @@ class CheckpointController:
         breakpoints: list[CheckpointStage] | None = None,
         interactive: bool | None = None,
         pipeline_config: dict[str, Any] | None = None,
+        deliverables_dir: Path | None = None,
     ) -> None:
         self.series = series
         self.episode = episode
         self.manager = manager
         self.drama_manager = drama_manager
+        self._deliverables_dir = deliverables_dir
 
         # None → pause at all; empty list → pause at none (auto)
         self._breakpoints = breakpoints
@@ -726,7 +735,7 @@ class CheckpointController:
         projects_dir = self.manager.base_dir
         series_dir = projects_dir / "dramas" / self.series.series_id
         review_dir = review_dir_for_episode(
-            self.series, self.episode, base_dir=projects_dir,
+            self.series, self.episode, base_dir=self._deliverables_dir,
         )
 
         # Create all subdirectories on first call (idempotent)
