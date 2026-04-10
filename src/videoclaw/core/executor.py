@@ -81,6 +81,7 @@ class DAGExecutor:
         bus: EventBus | None = None,
         max_concurrency: int = 4,
         cost_tracker: CostTracker | None = None,
+        checkpoint_controller: Any | None = None,
     ) -> None:
         self.dag = dag
         self.state = state
@@ -90,6 +91,12 @@ class DAGExecutor:
         self._config = get_config()
         self.cost_tracker = cost_tracker
         self._nodes_since_checkpoint: int = 0
+
+        # Optional human-checkpoint controller for Tier 2 phase-boundary
+        # breakpoints inside the DAG execution.
+        self._checkpoint_controller = checkpoint_controller
+        self._phase_lock = asyncio.Lock()
+        self._fired_phases: set[str] = set()
 
         # Handler dispatch table -- maps TaskType to its async handler.
         # During Phase 1 every entry points at a placeholder.  Later phases
@@ -208,6 +215,7 @@ class DAGExecutor:
                     "result": result,
                 })
                 await self._checkpoint()
+                await self._check_phase_boundary(node)
                 return
             except Exception as exc:
                 retries += 1
@@ -254,6 +262,74 @@ class DAGExecutor:
             await self.state_manager.save_async(self.state)
         except OSError:
             logger.exception("Failed to checkpoint state for %s", self.state.project_id)
+
+    # ------------------------------------------------------------------
+    # Tier 2 phase-boundary checkpoints
+    # ------------------------------------------------------------------
+
+    # Phase groups: when all nodes in a group are COMPLETED, the
+    # corresponding checkpoint fires.  Node IDs are matched by prefix.
+    _PHASE_GROUPS: dict[str, str] = {
+        "storyboard": "after_storyboard",   # script_gen, storyboard, scene_validate
+        "video_tts": "after_video_tts",     # all video_* and tts_* nodes
+        "compose": "after_compose",         # compose node
+    }
+
+    def _classify_node_phase(self, node_id: str) -> str | None:
+        """Return the phase group a node belongs to, or None."""
+        if node_id in ("script_gen", "storyboard", "scene_validate"):
+            return "storyboard"
+        if node_id.startswith("video_") or node_id.startswith("tts_"):
+            return "video_tts"
+        if node_id == "compose":
+            return "compose"
+        return None
+
+    def _is_phase_complete(self, phase: str) -> bool:
+        """Return True if all nodes in *phase* are COMPLETED."""
+        for nid, node in self.dag.nodes.items():
+            if self._classify_node_phase(nid) == phase:
+                if node.status != NodeStatus.COMPLETED:
+                    return False
+        # At least one node must exist in the phase
+        return any(
+            self._classify_node_phase(nid) == phase
+            for nid in self.dag.nodes
+        )
+
+    async def _check_phase_boundary(self, completed_node: TaskNode) -> None:
+        """Fire a Tier 2 checkpoint if a DAG phase boundary was crossed.
+
+        Uses an ``asyncio.Lock`` to prevent concurrent video_gen completions
+        from racing to trigger the same phase checkpoint.
+        """
+        if self._checkpoint_controller is None:
+            return
+
+        phase = self._classify_node_phase(completed_node.node_id)
+        if phase is None:
+            return
+
+        async with self._phase_lock:
+            if phase in self._fired_phases:
+                return
+            if not self._is_phase_complete(phase):
+                return
+
+            self._fired_phases.add(phase)
+
+        # Fire checkpoint outside the lock to avoid blocking
+        from videoclaw.drama.checkpoint import CheckpointStage
+        stage_name = self._PHASE_GROUPS[phase]
+        stage = CheckpointStage(stage_name)
+        logger.info("DAG phase boundary: %s → checkpoint %s", phase, stage_name)
+        await self._checkpoint_controller.checkpoint(
+            stage,
+            project_state=self.state,
+            dag=self.dag,
+            stage_result={"phase": phase, "completed_node": completed_node.node_id},
+            cost_usd=self.state.cost_total,
+        )
 
     # ------------------------------------------------------------------
     # Cost tracking

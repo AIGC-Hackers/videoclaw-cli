@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 
 if TYPE_CHECKING:
+    from videoclaw.drama.checkpoint import CheckpointStage
     from videoclaw.drama.models import DramaManager, DramaSeries, Episode
 
 from rich.panel import Panel
@@ -506,6 +507,31 @@ def drama_pipeline(
             help="Enable agent-driven execution (Director, Cameraman, Reviewer).",
         ),
     ] = False,
+    breakpoints: Annotated[
+        str,
+        typer.Option(
+            "--breakpoints", "-B",
+            help=(
+                "Comma-separated checkpoint stages to pause at. "
+                "'all' pauses at every checkpoint; 'none' (default) saves "
+                "checkpoints silently for audit trail without pausing."
+            ),
+        ),
+    ] = "none",
+    resume_from: Annotated[
+        str | None,
+        typer.Option(
+            "--resume-from",
+            help="Checkpoint ID to resume from (skips completed stages).",
+        ),
+    ] = None,
+    redo: Annotated[
+        str | None,
+        typer.Option(
+            "--redo",
+            help="Checkpoint ID — re-execute the stage that produced it.",
+        ),
+    ] = None,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
     """Run the full production pipeline: design -> refresh -> generate -> audit.
@@ -518,6 +544,18 @@ def drama_pipeline(
       4. audit-regen -- vision QA + auto-regenerate failing shots (skip with --skip-audit)
 
     \b
+    Human checkpoints are saved at each stage boundary for audit trail.
+    Use --breakpoints to pause for interactive review:
+      --breakpoints all              pause at every checkpoint
+      --breakpoints after_design     pause only after character design
+      --breakpoints after_design,after_generation  pause at specific stages
+
+    \b
+    Resume or redo from a saved checkpoint:
+      --resume-from <checkpoint_id>  skip completed stages, continue from checkpoint
+      --redo <checkpoint_id>         re-execute the stage that produced the checkpoint
+
+    \b
     Prerequisites: series must exist with planned episodes and scenes.
     Use `claw drama import` or `claw drama plan` + `claw drama script` first.
 
@@ -526,6 +564,8 @@ def drama_pipeline(
         claw drama pipeline 97e8424712d24fb2
         claw drama pipeline abc123 -e 1 --skip-design
         claw drama pipeline abc123 -e 2 -n 5 -c 2
+        claw drama pipeline abc123 --breakpoints all
+        claw drama pipeline abc123 --resume-from a1b2c3d4e5f6
     """
     configure_logging(verbose)
     show_banner()
@@ -533,11 +573,83 @@ def drama_pipeline(
     out = get_output()
     out._command = "drama.pipeline"
 
+    from videoclaw.drama.checkpoint import (
+        CheckpointManager,
+        CheckpointStage,
+        resolve_skip_flags,
+        restore_from_checkpoint,
+    )
     from videoclaw.drama.models import DramaManager
 
     mgr = DramaManager()
+    ckpt_mgr = CheckpointManager()
+
+    # --- Parse breakpoints ---
+    bp_list: list[CheckpointStage] | None
+    if breakpoints == "all":
+        bp_list = None  # None = pause at every checkpoint
+    elif breakpoints == "none":
+        bp_list = []  # empty = auto mode, save silently
+    else:
+        bp_list = [CheckpointStage(s.strip()) for s in breakpoints.split(",") if s.strip()]
+
+    # --- Resume from checkpoint ---
+    if resume_from:
+        try:
+            snapshot = ckpt_mgr.load(series_id, resume_from)
+        except FileNotFoundError:
+            console.print(f"[red]Checkpoint {resume_from!r} not found.[/red]")
+            out.set_error(f"Checkpoint {resume_from!r} not found.")
+            out.emit()
+            raise typer.Exit(code=1)
+
+        series = restore_from_checkpoint(snapshot)
+        skip_flags = resolve_skip_flags(snapshot.remaining_stages)
+        skip_design = skip_flags["skip_design"]
+        skip_refresh = skip_flags["skip_refresh"]
+        skip_run = skip_flags["skip_run"]
+        skip_audit = skip_flags["skip_audit"]
+        console.print(
+            f"[bold green]Resuming from checkpoint {resume_from} "
+            f"(stage: {snapshot.stage.value})[/bold green]"
+        )
+
+    # --- Redo from checkpoint ---
+    if redo:
+        try:
+            snapshot = ckpt_mgr.load(series_id, redo)
+        except FileNotFoundError:
+            console.print(f"[red]Checkpoint {redo!r} not found.[/red]")
+            out.set_error(f"Checkpoint {redo!r} not found.")
+            out.emit()
+            raise typer.Exit(code=1)
+
+        series = restore_from_checkpoint(snapshot)
+        # Redo: re-run the stage that produced this checkpoint + remaining
+        redo_stage = snapshot.stage.value
+        _STAGE_MAP = {
+            "after_design": "design-characters",
+            "after_refresh": "refresh-urls",
+            "after_generation": "run",
+            "after_audit": "audit-regen",
+            "after_storyboard": "run",
+            "after_video_tts": "run",
+            "after_compose": "run",
+        }
+        redo_pipeline_stage = _STAGE_MAP.get(redo_stage, "run")
+        remaining = [redo_pipeline_stage] + snapshot.remaining_stages
+        skip_flags = resolve_skip_flags(remaining)
+        skip_design = skip_flags["skip_design"]
+        skip_refresh = skip_flags["skip_refresh"]
+        skip_run = skip_flags["skip_run"]
+        skip_audit = skip_flags["skip_audit"]
+        console.print(
+            f"[bold yellow]Redo from checkpoint {redo} "
+            f"(re-running: {redo_pipeline_stage})[/bold yellow]"
+        )
+
     try:
-        series = mgr.load(series_id)
+        series = mgr.load(series_id) if not (resume_from or redo) else series
     except FileNotFoundError:
         console.print(f"[red]Series {series_id!r} not found.[/red]")
         out.set_error(f"Series {series_id!r} not found.")
@@ -575,7 +687,8 @@ def drama_pipeline(
             f"[bold]Series:[/bold]      {series.title}\n"
             f"[bold]Episode:[/bold]     {episode} ({len(ep.scenes)} scenes)\n"
             f"[bold]Stages:[/bold]      {' → '.join(stages)}\n"
-            f"[bold]Audit rounds:[/bold] {audit_rounds}",
+            f"[bold]Audit rounds:[/bold] {audit_rounds}\n"
+            f"[bold]Breakpoints:[/bold]  {breakpoints}",
             title="[bold cyan]Full Pipeline[/bold cyan]",
             border_style="cyan",
         )
@@ -587,6 +700,7 @@ def drama_pipeline(
                 series, mgr, ep, skip_design, skip_refresh,
                 skip_run, skip_audit, audit_rounds, concurrency,
                 use_agents=agents,
+                breakpoints=bp_list,
             )
         )
     except Exception as exc:
@@ -610,8 +724,20 @@ async def _drama_pipeline_async(
     concurrency: int,
     *,
     use_agents: bool = False,
+    breakpoints: list[CheckpointStage] | None = None,
 ) -> dict:
-    """Execute the full production pipeline stages sequentially."""
+    """Execute the full production pipeline stages sequentially.
+
+    When *breakpoints* is not ``[]``, a :class:`CheckpointController` saves
+    snapshots between stages and optionally pauses for human review.
+    """
+    from videoclaw.drama.checkpoint import (
+        CheckpointAction,
+        CheckpointController,
+        CheckpointManager,
+        CheckpointStage,
+    )
+
     console = get_console()
     result: dict = {
         "series_id": series.series_id,
@@ -619,6 +745,41 @@ async def _drama_pipeline_async(
         "stages": {},
         "total_cost": 0.0,
     }
+
+    # --- Checkpoint controller ---
+    ckpt_mgr = CheckpointManager()
+    pipeline_config = {
+        "skip_design": skip_design,
+        "skip_refresh": skip_refresh,
+        "skip_run": skip_run,
+        "skip_audit": skip_audit,
+        "audit_rounds": audit_rounds,
+        "concurrency": concurrency,
+        "use_agents": use_agents,
+    }
+    ctrl = CheckpointController(
+        series=series,
+        episode=episode,
+        manager=ckpt_mgr,
+        drama_manager=mgr,
+        breakpoints=breakpoints if breakpoints is not None else [],
+        pipeline_config=pipeline_config,
+    )
+
+    def _remaining_after(current: str) -> list[str]:
+        """Return stages that come after *current*."""
+        all_stages = ["design-characters", "refresh-urls", "run", "audit-regen"]
+        active = [s for s in all_stages if not {
+            "design-characters": skip_design,
+            "refresh-urls": skip_refresh,
+            "run": skip_run,
+            "audit-regen": skip_audit,
+        }.get(s, False)]
+        try:
+            idx = active.index(current)
+            return active[idx + 1:]
+        except ValueError:
+            return []
 
     # --- Stage 1: Design characters ---
     if not skip_design:
@@ -635,6 +796,20 @@ async def _drama_pipeline_async(
             " characters have reference images[/green]"
         )
         result["stages"]["design_characters"] = {"characters": chars_with_img}
+
+        # Checkpoint: after_design
+        action = await ctrl.checkpoint(
+            CheckpointStage.AFTER_DESIGN,
+            stage_result=result["stages"]["design_characters"],
+            cost_usd=result["total_cost"],
+            remaining_stages=_remaining_after("design-characters"),
+        )
+        if action == CheckpointAction.ABORT:
+            return result
+        if action == CheckpointAction.REDO:
+            # Re-run design: reset and recurse (non-recursive: caller handles)
+            console.print("[yellow]Redo requested — re-running design stage...[/yellow]")
+            await designer.design_characters(series, force=True)
     else:
         console.print("\n[dim]Stage 1/4: Design Characters — skipped[/dim]")
 
@@ -649,6 +824,19 @@ async def _drama_pipeline_async(
         ok_count = sum(1 for v in refreshed.values() if v)
         console.print(f"  [green]{ok_count}/{len(refreshed)} characters have valid URLs[/green]")
         result["stages"]["refresh_urls"] = {"valid": ok_count, "total": len(refreshed)}
+
+        # Checkpoint: after_refresh
+        action = await ctrl.checkpoint(
+            CheckpointStage.AFTER_REFRESH,
+            stage_result=result["stages"]["refresh_urls"],
+            cost_usd=result["total_cost"],
+            remaining_stages=_remaining_after("refresh-urls"),
+        )
+        if action == CheckpointAction.ABORT:
+            return result
+        if action == CheckpointAction.REDO:
+            console.print("[yellow]Redo requested — re-refreshing URLs...[/yellow]")
+            await ensure_fresh_urls(series, drama_manager=mgr, force=True)
     else:
         console.print("\n[dim]Stage 2/4: Refresh URLs — skipped[/dim]")
 
@@ -685,6 +873,17 @@ async def _drama_pipeline_async(
                 "completed_shots": completed_shots,
                 "total_shots": total_shots,
             }
+            # Checkpoint: after_generation
+            action = await ctrl.checkpoint(
+                CheckpointStage.AFTER_GENERATION,
+                project_state=state,
+                stage_result=result["stages"]["run"],
+                cost_usd=result["total_cost"],
+                remaining_stages=_remaining_after("run"),
+            )
+            if action == CheckpointAction.ABORT:
+                return result
+            # Redo not supported for generation (expensive); user should use regen-shot
         except Exception as exc:
             logger.error("Stage 3 (run) failed: %s", exc)
             console.print(f"  [red]Generation failed: {exc}[/red]")
@@ -769,6 +968,16 @@ async def _drama_pipeline_async(
             "total": final_total,
             "cost": round(audit_cost, 4),
         }
+
+        # Checkpoint: after_audit
+        action = await ctrl.checkpoint(
+            CheckpointStage.AFTER_AUDIT,
+            stage_result=result["stages"]["audit_regen"],
+            cost_usd=result["total_cost"],
+            remaining_stages=[],
+        )
+        if action == CheckpointAction.ABORT:
+            return result
     else:
         console.print("\n[dim]Stage 4/4: Audit & Regen — skipped[/dim]")
 

@@ -20,6 +20,9 @@ TASK_FAILED: str = "task.failed"
 SHOT_GENERATED: str = "shot.generated"
 COST_UPDATED: str = "cost.updated"
 PROJECT_COMPLETED: str = "project.completed"
+CHECKPOINT_SAVED: str = "checkpoint.saved"
+CHECKPOINT_RESUMED: str = "checkpoint.resumed"
+CHECKPOINT_REDO: str = "checkpoint.redo"
 
 # A handler receives the event type string and an arbitrary data payload.
 EventHandler = Callable[[str, dict[str, Any]], Coroutine[Any, Any, None]]

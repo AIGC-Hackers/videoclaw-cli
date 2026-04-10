@@ -5,6 +5,7 @@ this module (e.g. ``import videoclaw.cli.drama``) triggers command
 registration on the shared :data:`drama_app` Typer sub-app.
 """
 
+import videoclaw.cli.drama._checkpoint
 import videoclaw.cli.drama._design
 import videoclaw.cli.drama._export
 import videoclaw.cli.drama._generate
