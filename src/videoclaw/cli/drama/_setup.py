@@ -324,6 +324,12 @@ async def _drama_import_async(
 
     mgr.save(series)
 
+    # 4b. Generate storyboard.md immediately for each episode
+    from videoclaw.drama.checkpoint import generate_storyboard_md
+    for ep in series.episodes:
+        sb_path = generate_storyboard_md(series, ep)
+        console.print(f"  [green]Storyboard written:[/green] {sb_path}")
+
     # 5. Display results
     console.print(
         Panel(

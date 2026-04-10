@@ -15,6 +15,7 @@ from videoclaw.drama.checkpoint import (
     CheckpointStage,
     _scene_slug,
     _slugify,
+    generate_storyboard_md,
     resolve_skip_flags,
     restore_from_checkpoint,
 )
@@ -763,3 +764,45 @@ async def test_storyboard_md_generated(tmp_path: Path):
     assert "hook" in content               # shot_role
     assert "I didn't expect" in content    # dialogue
     assert "tense" in content              # emotion
+
+
+@pytest.mark.asyncio
+async def test_generate_storyboard_md_standalone(tmp_path: Path):
+    """generate_storyboard_md() should work without a CheckpointController."""
+    from videoclaw.drama.models import DramaScene, DramaSeries, Episode, ShotScale
+
+    series = DramaSeries(
+        series_id="standalone_test",
+        title="Standalone Storyboard",
+        genre="thriller",
+        synopsis="Test standalone generation.",
+        aspect_ratio="9:16",
+        model_id="seedance-2.0",
+    )
+    scenes = [
+        DramaScene(
+            scene_id="ep01_s01",
+            description="A man walks into a bar",
+            visual_prompt="Man enters bar.",
+            duration_seconds=6.0,
+            shot_scale=ShotScale.MEDIUM,
+            camera_movement="static",
+            characters_present=["Jake"],
+            act_number="act_1",
+        ),
+    ]
+    episode = Episode(
+        episode_id="ep1", number=1, title="Pilot",
+        synopsis="test", opening_hook="", scenes=scenes,
+    )
+    series.episodes.append(episode)
+
+    review_dir = tmp_path / "review" / "ep01"
+    sb_path = generate_storyboard_md(series, episode, review_dir=review_dir)
+
+    assert sb_path.exists()
+    content = sb_path.read_text()
+    assert "Standalone Storyboard" in content
+    assert "EP01 分镜表" in content
+    assert "Jake" in content
+    assert "6" in content  # duration
