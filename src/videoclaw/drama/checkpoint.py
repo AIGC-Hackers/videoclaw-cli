@@ -77,11 +77,38 @@ def _scene_slug(index: int, description: str) -> str:
     return f"s{index + 1:02d}_{slug}"
 
 
-def _safe_symlink(src: Path, dst: Path) -> None:
-    """Create a symlink, silently skipping on failure (e.g. Windows without dev mode)."""
+def _version_existing(path: Path) -> None:
+    """If *path* exists, rename it to ``{stem}_v{N}{suffix}`` to preserve history.
+
+    Finds the next available version number so repeated redos produce
+    ``_v1``, ``_v2``, etc.
+    """
+    if not (path.exists() or path.is_symlink()):
+        return
+    stem, suffix = path.stem, path.suffix
+    parent = path.parent
+    version = 1
+    while True:
+        versioned = parent / f"{stem}_v{version}{suffix}"
+        if not versioned.exists() and not versioned.is_symlink():
+            path.rename(versioned)
+            logger.debug("Versioned: %s → %s", path.name, versioned.name)
+            return
+        version += 1
+
+
+def _safe_symlink(src: Path, dst: Path, *, keep_versions: bool = False) -> None:
+    """Create a symlink, silently skipping on failure.
+
+    When *keep_versions* is True and *dst* already exists, the existing
+    file is renamed to ``{stem}_v{N}{suffix}`` before linking.
+    """
     try:
         if dst.exists() or dst.is_symlink():
-            dst.unlink()
+            if keep_versions:
+                _version_existing(dst)
+            else:
+                dst.unlink()
         dst.symlink_to(src.resolve())
     except OSError:
         logger.debug("Symlink failed (%s → %s), falling back to skip", dst, src)
@@ -420,8 +447,8 @@ class CheckpointController:
 
         Returns the action selected by the human, or CONTINUE in auto mode.
         """
-        # 1. Build semantic review directory (symlinks to real assets)
-        review_dir, assets = self._build_review_snapshot(stage)
+        # 1. Update cumulative review directory (additive, not destructive)
+        review_dir, assets = self._update_review_dir(stage)
 
         # 2. Build snapshot
         snapshot = CheckpointSnapshot(
@@ -468,57 +495,88 @@ class CheckpointController:
     # Semantic review snapshot
     # ------------------------------------------------------------------
 
-    def _build_review_snapshot(
+    # Stage → subdirectories to update (only these are touched per checkpoint)
+    _STAGE_SUBDIRS: dict[str, list[str]] = {
+        "after_design":     ["characters"],
+        "after_refresh":    ["characters"],
+        "after_storyboard": ["prompts"],
+        "after_video_tts":  ["videos", "audio"],
+        "after_generation": ["videos", "audio", "composed"],
+        "after_compose":    ["composed"],
+        "after_audit":      ["audit"],
+    }
+
+    # All subdirectories that exist in the review folder
+    _ALL_SUBDIRS = ("characters", "prompts", "videos", "audio", "audit", "composed")
+
+    def _update_review_dir(
         self, stage: CheckpointStage,
     ) -> tuple[Path, dict[str, str]]:
-        """Create a semantic review directory with symlinks to actual assets.
+        """Incrementally update the cumulative review directory.
 
-        The review directory is the primary interface for human inspection:
-        every file name is derived from scene descriptions, not from IDs or
-        hashes.  Symlinks avoid duplicating large media files.
+        One directory per episode: ``review/ep{NN}/``.  Each checkpoint
+        only touches the subdirectories relevant to its stage.  Existing
+        files from earlier stages are preserved.  When a file is replaced
+        (e.g. redo), the old version is renamed to ``{name}_v{N}{ext}``.
 
-        Returns ``(review_dir_path, assets_dict)``.
+        Returns ``(review_dir_path, assets_dict)`` where assets_dict
+        contains ALL files currently in the review directory (cumulative).
         """
         projects_dir = self.manager.base_dir
         series_dir = projects_dir / "dramas" / self.series.series_id
 
         ep_num = self.episode.number
-        review_dir = series_dir / "review" / f"ep{ep_num:02d}_{stage.value}"
+        review_dir = series_dir / "review" / f"ep{ep_num:02d}"
 
-        # Clean previous review for this stage (idempotent)
-        if review_dir.exists():
-            import shutil
-            shutil.rmtree(review_dir)
+        # Create all subdirectories on first call (idempotent)
         review_dir.mkdir(parents=True, exist_ok=True)
+        for subdir in self._ALL_SUBDIRS:
+            (review_dir / subdir).mkdir(exist_ok=True)
 
-        assets: dict[str, str] = {}
+        # Only update subdirectories relevant to this stage
+        active_subdirs = set(self._STAGE_SUBDIRS.get(stage.value, []))
 
-        # -- Characters --
-        chars_review = review_dir / "characters"
-        chars_review.mkdir(exist_ok=True)
+        if "characters" in active_subdirs:
+            self._update_characters(review_dir / "characters")
+
+        if "prompts" in active_subdirs:
+            self._update_prompts(review_dir / "prompts")
+
+        if "videos" in active_subdirs:
+            self._update_videos(review_dir / "videos", projects_dir)
+
+        if "audio" in active_subdirs:
+            self._update_audio(review_dir / "audio")
+
+        if "audit" in active_subdirs:
+            self._update_audit(review_dir / "audit", series_dir)
+
+        if "composed" in active_subdirs:
+            self._update_composed(review_dir / "composed", series_dir)
+
+        # Collect ALL assets across the entire review dir (cumulative)
+        assets = self._collect_all_assets(review_dir)
+        return review_dir, assets
+
+    # -- Per-subdirectory updaters (only called for relevant stages) --
+
+    def _update_characters(self, chars_dir: Path) -> None:
         for char in self.series.characters:
-            # Turnaround image (local file)
             if char.reference_image:
                 src = Path(char.reference_image)
                 if src.exists():
                     name = f"{_slugify(char.name)}_turnaround{src.suffix}"
-                    dst = chars_review / name
-                    _safe_symlink(src, dst)
-                    assets[f"characters/{name}"] = str(dst)
-            # URL reference (write a .url file for quick access)
+                    _safe_symlink(src, chars_dir / name)
             url = getattr(char, "reference_image_url", None)
             if url:
-                url_file = chars_review / f"{_slugify(char.name)}_url.txt"
+                url_file = chars_dir / f"{_slugify(char.name)}_url.txt"
                 url_file.write_text(url, encoding="utf-8")
-                assets[f"characters/{url_file.name}"] = str(url_file)
 
-        # -- Prompts (text files named after scene descriptions) --
-        prompts_review = review_dir / "prompts"
-        prompts_review.mkdir(exist_ok=True)
+    def _update_prompts(self, prompts_dir: Path) -> None:
         for idx, scene in enumerate(self.episode.scenes):
             slug = _scene_slug(idx, scene.description)
-            prompt_file = prompts_review / f"{slug}.txt"
-            prompt_text = (
+            prompt_file = prompts_dir / f"{slug}.txt"
+            prompt_file.write_text(
                 f"Scene: {scene.scene_id}\n"
                 f"Description: {scene.description}\n"
                 f"Duration: {scene.duration_seconds}s\n"
@@ -526,22 +584,18 @@ class CheckpointController:
                 f"Dialogue: {scene.dialogue}\n"
                 f"Camera: {scene.camera_movement}\n"
                 f"Shot scale: {scene.shot_scale.value if scene.shot_scale else 'n/a'}\n"
-                f"\n--- Prompt ---\n{scene.effective_prompt}\n"
+                f"\n--- Prompt ---\n{scene.effective_prompt}\n",
+                encoding="utf-8",
             )
-            prompt_file.write_text(prompt_text, encoding="utf-8")
-            assets[f"prompts/{slug}.txt"] = str(prompt_file)
 
-        # -- Videos (symlinks with semantic names) --
-        videos_review = review_dir / "videos"
-        videos_review.mkdir(exist_ok=True)
+    def _update_videos(self, videos_dir: Path, projects_dir: Path) -> None:
         for idx, scene in enumerate(self.episode.scenes):
             if scene.video_asset_path:
                 src = Path(scene.video_asset_path)
                 if src.exists():
                     slug = _scene_slug(idx, scene.description)
-                    dst = videos_review / f"{slug}{src.suffix}"
-                    _safe_symlink(src, dst)
-                    assets[f"videos/{slug}{src.suffix}"] = str(dst)
+                    dst = videos_dir / f"{slug}{src.suffix}"
+                    _safe_symlink(src, dst, keep_versions=True)
 
         # Also check project shots dir for video files not yet in scene state
         if self.episode.project_id:
@@ -551,92 +605,98 @@ class CheckpointController:
                 for f in sorted(shots_dir.iterdir()):
                     if f.suffix.lower() != ".mp4":
                         continue
-                    # Match shot file to scene by scene_id in filename
-                    matched = False
                     for sid, (i, sc) in scene_map.items():
                         if sid in f.name:
                             slug = _scene_slug(i, sc.description)
-                            dst = videos_review / f"{slug}{f.suffix}"
-                            if not dst.exists():
-                                _safe_symlink(f, dst)
-                                assets[f"videos/{slug}{f.suffix}"] = str(dst)
-                            matched = True
+                            dst = videos_dir / f"{slug}{f.suffix}"
+                            if not (dst.exists() or dst.is_symlink()):
+                                _safe_symlink(f, dst, keep_versions=True)
                             break
-                    if not matched:
-                        # No scene match — link with original name
-                        dst = videos_review / f.name
-                        if not dst.exists():
-                            _safe_symlink(f, dst)
-                            assets[f"videos/{f.name}"] = str(dst)
 
-        # -- Audio (symlinks) --
-        audio_review = review_dir / "audio"
-        audio_review.mkdir(exist_ok=True)
+    def _update_audio(self, audio_dir: Path) -> None:
         for idx, scene in enumerate(self.episode.scenes):
             slug = _scene_slug(idx, scene.description)
             if scene.dialogue_audio_path:
                 src = Path(scene.dialogue_audio_path)
                 if src.exists():
-                    dst = audio_review / f"{slug}_dialogue{src.suffix}"
-                    _safe_symlink(src, dst)
-                    assets[f"audio/{slug}_dialogue{src.suffix}"] = str(dst)
+                    _safe_symlink(src, audio_dir / f"{slug}_dialogue{src.suffix}", keep_versions=True)
             if scene.narration_audio_path:
                 src = Path(scene.narration_audio_path)
                 if src.exists():
-                    dst = audio_review / f"{slug}_narration{src.suffix}"
-                    _safe_symlink(src, dst)
-                    assets[f"audio/{slug}_narration{src.suffix}"] = str(dst)
+                    _safe_symlink(src, audio_dir / f"{slug}_narration{src.suffix}", keep_versions=True)
 
-        # -- Audit reports --
-        ep_prefix = f"ep{ep_num:02d}"
-        audit_src_dir = series_dir / f"{ep_prefix}_audit"
-        if audit_src_dir.is_dir():
-            audit_review = review_dir / "audit"
-            audit_review.mkdir(exist_ok=True)
-            for f in sorted(audit_src_dir.iterdir()):
+    def _update_audit(self, audit_dir: Path, series_dir: Path) -> None:
+        ep_prefix = f"ep{self.episode.number:02d}"
+        audit_src = series_dir / f"{ep_prefix}_audit"
+        if audit_src.is_dir():
+            for f in sorted(audit_src.iterdir()):
                 if f.suffix.lower() in (".json", ".jsonl"):
-                    dst = audit_review / f.name
-                    _safe_symlink(f, dst)
-                    assets[f"audit/{f.name}"] = str(dst)
+                    _safe_symlink(f, audit_dir / f.name)
 
-        # -- Composed video --
-        video_src_dir = series_dir / f"{ep_prefix}_video"
-        if video_src_dir.is_dir():
-            for f in video_src_dir.iterdir():
+    def _update_composed(self, composed_dir: Path, series_dir: Path) -> None:
+        ep_prefix = f"ep{self.episode.number:02d}"
+        video_src = series_dir / f"{ep_prefix}_video"
+        if video_src.is_dir():
+            for f in video_src.iterdir():
                 if "final" in f.name.lower() or "composed" in f.name.lower():
-                    dst = review_dir / f"composed_{f.name}"
-                    _safe_symlink(f, dst)
-                    assets[f"composed_{f.name}"] = str(dst)
+                    _safe_symlink(f, composed_dir / f.name, keep_versions=True)
 
-        return review_dir, assets
+    @staticmethod
+    def _collect_all_assets(review_dir: Path) -> dict[str, str]:
+        """Walk the entire review directory and return all files as assets dict."""
+        assets: dict[str, str] = {}
+        for path in sorted(review_dir.rglob("*")):
+            if path.is_file() or path.is_symlink():
+                rel = str(path.relative_to(review_dir))
+                assets[rel] = str(path)
+        return assets
 
     def _write_review_summary(
         self, review_dir: Path, snapshot: CheckpointSnapshot,
     ) -> None:
-        """Write a human-readable _REVIEW.txt summary into the review dir."""
+        """Write a human-readable _REVIEW.txt with full cumulative state."""
         remaining = ", ".join(snapshot.remaining_stages) or "(done)"
+
+        # Count files per subdirectory
+        subdir_counts: dict[str, int] = {}
+        for subdir in self._ALL_SUBDIRS:
+            d = review_dir / subdir
+            if d.is_dir():
+                subdir_counts[subdir] = sum(1 for f in d.iterdir() if f.is_file() or f.is_symlink())
+            else:
+                subdir_counts[subdir] = 0
+
+        _SUBDIR_LABELS = {
+            "characters": "turnaround sheets + reference URLs",
+            "prompts":    "editable visual prompts per scene",
+            "videos":     "generated video clips",
+            "audio":      "dialogue + narration audio",
+            "audit":      "vision QA reports",
+            "composed":   "composed final video",
+        }
+
         lines = [
-            f"Checkpoint: {snapshot.stage.value}",
-            f"Series:     {self.series.title} ({self.series.series_id})",
-            f"Episode:    {snapshot.episode_number}",
-            f"Cost:       ${snapshot.cost_usd:.4f}",
-            f"Created:    {snapshot.created_at}",
-            f"ID:         {snapshot.checkpoint_id}",
-            f"Remaining:  {remaining}",
+            f"Series:      {self.series.title} ({self.series.series_id})",
+            f"Episode:     {snapshot.episode_number}",
+            f"Last stage:  {snapshot.stage.value}",
+            f"Cost:        ${snapshot.cost_usd:.4f}",
+            f"Updated:     {snapshot.created_at}",
+            f"Checkpoint:  {snapshot.checkpoint_id}",
+            f"Remaining:   {remaining}",
             "",
-            "=== Directory Layout ===",
-            "characters/  — Character turnaround sheets + reference URLs",
-            "prompts/     — Enhanced visual prompts per scene (editable!)",
-            "videos/      — Generated video clips per scene",
-            "audio/       — Dialogue + narration audio per scene",
-            "audit/       — Vision QA audit reports",
-            "",
-            "=== Scenes ===",
+            "=== Assets ===",
         ]
+        for subdir in self._ALL_SUBDIRS:
+            count = subdir_counts.get(subdir, 0)
+            label = _SUBDIR_LABELS.get(subdir, "")
+            lines.append(f"  {subdir + '/':<14s} {count:>3d} files  ({label})")
+
+        lines.append("")
+        lines.append("=== Scenes ===")
         for idx, scene in enumerate(self.episode.scenes):
             slug = _scene_slug(idx, scene.description)
             status = scene.scene_status or "pending"
-            lines.append(f"  {slug}  [{status}]  {scene.description[:60]}")
+            lines.append(f"  {slug:<40s} [{status:<9s}]  {scene.description[:50]}")
 
         summary_path = review_dir / "_REVIEW.txt"
         summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")

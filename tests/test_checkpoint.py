@@ -455,22 +455,26 @@ def test_scene_slug_special_chars():
 
 
 def test_snapshot_roundtrip_with_review_dir():
-    snap = _make_snapshot(review_dir="/tmp/review/ep01_after_design")
+    snap = _make_snapshot(review_dir="/tmp/review/ep01")
     data = snap.to_dict()
-    assert data["review_dir"] == "/tmp/review/ep01_after_design"
+    assert data["review_dir"] == "/tmp/review/ep01"
 
     restored = CheckpointSnapshot.from_dict(data)
-    assert restored.review_dir == "/tmp/review/ep01_after_design"
+    assert restored.review_dir == "/tmp/review/ep01"
 
 
 @pytest.mark.asyncio
-async def test_controller_builds_review_dir(tmp_path: Path):
-    """Checkpoint should create a semantic review directory with prompts."""
+async def test_controller_cumulative_review_dir(tmp_path: Path):
+    """Two checkpoints on the same episode share one review/ep01/ directory.
+
+    after_design populates characters/ (not prompts/).
+    after_storyboard populates prompts/ (keeps characters/).
+    """
     from videoclaw.drama.models import DramaManager, DramaSeries, DramaScene, Episode
 
     series = DramaSeries(
-        series_id="review_test_001",
-        title="Review Test",
+        series_id="cumul_test",
+        title="Cumulative Test",
         genre="test",
         synopsis="test",
     )
@@ -507,33 +511,127 @@ async def test_controller_builds_review_dir(tmp_path: Path):
         interactive=False,
     )
 
-    action = await ctrl.checkpoint(
+    # --- Checkpoint 1: after_design (populates characters/) ---
+    await ctrl.checkpoint(
         CheckpointStage.AFTER_DESIGN,
         cost_usd=0.1,
         remaining_stages=["run"],
     )
-    assert action == CheckpointAction.CONTINUE
 
-    # Verify review directory structure
-    review_dir = tmp_path / "dramas" / "review_test_001" / "review" / "ep01_after_design"
+    review_dir = tmp_path / "dramas" / "cumul_test" / "review" / "ep01"
     assert review_dir.is_dir()
 
-    # Prompts should exist with semantic names
-    prompts_dir = review_dir / "prompts"
-    assert prompts_dir.is_dir()
-    prompt_files = sorted(prompts_dir.iterdir())
+    # All subdirs should exist (created on first call)
+    for subdir in ("characters", "prompts", "videos", "audio", "audit", "composed"):
+        assert (review_dir / subdir).is_dir()
+
+    # Prompts should be EMPTY (after_design doesn't populate prompts)
+    assert list((review_dir / "prompts").iterdir()) == []
+
+    # --- Checkpoint 2: after_storyboard (populates prompts/) ---
+    await ctrl.checkpoint(
+        CheckpointStage.AFTER_STORYBOARD,
+        cost_usd=0.2,
+        remaining_stages=["run"],
+    )
+
+    # Review dir is the SAME path (cumulative, not a new directory)
+    assert review_dir.is_dir()
+
+    # Prompts should now have files
+    prompt_files = sorted((review_dir / "prompts").iterdir())
     assert len(prompt_files) == 2
     assert "s01_poolside_arrival_at_sunset" in prompt_files[0].name
     assert "s02_eye_contact_across_pool" in prompt_files[1].name
 
-    # _REVIEW.txt summary should exist
+    # _REVIEW.txt should reflect latest state
     summary = review_dir / "_REVIEW.txt"
     assert summary.exists()
     content = summary.read_text()
-    assert "Review Test" in content
-    assert "Poolside arrival" in content
+    assert "Cumulative Test" in content
+    assert "after_storyboard" in content  # last stage
+    assert "prompts/" in content
+    assert "characters/" in content
 
-    # Characters and videos dirs should be created (even if empty)
-    assert (review_dir / "characters").is_dir()
-    assert (review_dir / "videos").is_dir()
-    assert (review_dir / "audio").is_dir()
+
+@pytest.mark.asyncio
+async def test_version_existing_on_redo(tmp_path: Path):
+    """When a video symlink already exists, redo should version the old one."""
+    from videoclaw.drama.checkpoint import _version_existing
+
+    videos_dir = tmp_path / "videos"
+    videos_dir.mkdir()
+
+    # Create initial file
+    original = videos_dir / "s03_poolside.mp4"
+    original.write_bytes(b"video_v0")
+
+    # First version
+    _version_existing(original)
+    assert not original.exists()
+    assert (videos_dir / "s03_poolside_v1.mp4").exists()
+    assert (videos_dir / "s03_poolside_v1.mp4").read_bytes() == b"video_v0"
+
+    # Create another file at the same path
+    original.write_bytes(b"video_v1")
+    _version_existing(original)
+    assert not original.exists()
+    assert (videos_dir / "s03_poolside_v2.mp4").exists()
+    assert (videos_dir / "s03_poolside_v2.mp4").read_bytes() == b"video_v1"
+
+
+@pytest.mark.asyncio
+async def test_review_summary_is_cumulative(tmp_path: Path):
+    """_REVIEW.txt should show file counts across ALL subdirectories."""
+    from videoclaw.drama.models import DramaManager, DramaSeries, DramaScene, Episode
+
+    series = DramaSeries(
+        series_id="summary_test",
+        title="Summary Test",
+        genre="test",
+        synopsis="test",
+    )
+    scene = DramaScene(
+        scene_id="ep01_s01",
+        description="Opening scene",
+        visual_prompt="A dramatic opening.",
+    )
+    episode = Episode(
+        episode_id="ep1",
+        number=1,
+        title="Pilot",
+        synopsis="test",
+        opening_hook="",
+        scenes=[scene],
+    )
+    series.episodes.append(episode)
+
+    drama_mgr = DramaManager(base_dir=tmp_path)
+    drama_mgr.save(series)
+
+    ckpt_mgr = CheckpointManager(base_dir=tmp_path)
+    ctrl = CheckpointController(
+        series=series,
+        episode=episode,
+        manager=ckpt_mgr,
+        drama_manager=drama_mgr,
+        breakpoints=[],
+        interactive=False,
+    )
+
+    # Checkpoint 1: after_storyboard → populates prompts/
+    await ctrl.checkpoint(CheckpointStage.AFTER_STORYBOARD, cost_usd=0.1)
+
+    review_dir = tmp_path / "dramas" / "summary_test" / "review" / "ep01"
+    content = (review_dir / "_REVIEW.txt").read_text()
+    assert "prompts/" in content
+    assert "1 files" in content  # 1 prompt file
+
+    # Checkpoint 2: after_audit → populates audit/ (empty in this case)
+    await ctrl.checkpoint(CheckpointStage.AFTER_AUDIT, cost_usd=0.3)
+
+    content2 = (review_dir / "_REVIEW.txt").read_text()
+    # Should still show prompts count from earlier stage
+    assert "prompts/" in content2
+    assert "1 files" in content2  # prompts still counted
+    assert "after_audit" in content2  # last stage updated
