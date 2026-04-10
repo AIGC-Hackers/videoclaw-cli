@@ -10,16 +10,31 @@ Provides structured breakpoints at critical production nodes so humans can:
 Every checkpoint is persisted to disk regardless of mode (interactive or
 automated), ensuring a complete audit trail.
 
-Layout::
+At each checkpoint a **semantic review directory** is created with human-
+readable file names derived from scene descriptions.  Symlinks point back
+to the actual generated assets so no disk space is wasted::
 
-    {projects_dir}/dramas/{series_id}/checkpoints/
-        ep{NN}_{stage}_{checkpoint_id}.json
+    {projects_dir}/dramas/{series_id}/
+        review/
+            ep01_after_generation/
+                characters/
+                    Lucian_turnaround.png → ../../characters/...
+                videos/
+                    s01_poolside_arrival.mp4 → ../../ep01_video/...
+                prompts/
+                    s01_poolside_arrival.txt
+                audit/
+                    round_1.json
+        checkpoints/
+            ep01_after_generation_{id}.json
 """
 
 from __future__ import annotations
 
 import json as _json
 import logging
+import os
+import re
 import sys
 import uuid
 from dataclasses import dataclass, field
@@ -36,6 +51,40 @@ if TYPE_CHECKING:
     from videoclaw.drama.models import DramaManager, DramaSeries, Episode
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Naming helpers
+# ---------------------------------------------------------------------------
+
+def _slugify(text: str, max_len: int = 40) -> str:
+    """Convert free-form text to a filesystem-safe slug.
+
+    >>> _slugify("Poolside  Confrontation!")
+    'poolside_confrontation'
+    """
+    # Lowercase, keep only alphanumerics / spaces / underscores / hyphens
+    s = re.sub(r"[^\w\s-]", "", text.lower().strip())
+    s = re.sub(r"[\s-]+", "_", s)
+    return s[:max_len].rstrip("_")
+
+
+def _scene_slug(index: int, description: str) -> str:
+    """Build a semantic scene file name: ``s01_poolside_arrival``."""
+    slug = _slugify(description, max_len=35)
+    if not slug:
+        slug = "scene"
+    return f"s{index + 1:02d}_{slug}"
+
+
+def _safe_symlink(src: Path, dst: Path) -> None:
+    """Create a symlink, silently skipping on failure (e.g. Windows without dev mode)."""
+    try:
+        if dst.exists() or dst.is_symlink():
+            dst.unlink()
+        dst.symlink_to(src.resolve())
+    except OSError:
+        logger.debug("Symlink failed (%s → %s), falling back to skip", dst, src)
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +153,9 @@ class CheckpointSnapshot:
     # Arbitrary metadata (user notes, git commit, etc.)
     metadata: dict[str, Any] = field(default_factory=dict)
 
+    # Absolute path to the semantic review directory (set after build)
+    review_dir: str = ""
+
     # ------------------------------------------------------------------
     # Serialisation
     # ------------------------------------------------------------------
@@ -124,6 +176,7 @@ class CheckpointSnapshot:
             "pipeline_config": self.pipeline_config,
             "remaining_stages": self.remaining_stages,
             "metadata": self.metadata,
+            "review_dir": self.review_dir,
         }
 
     @classmethod
@@ -143,6 +196,7 @@ class CheckpointSnapshot:
             pipeline_config=data.get("pipeline_config", {}),
             remaining_stages=data.get("remaining_stages", []),
             metadata=data.get("metadata", {}),
+            review_dir=data.get("review_dir", ""),
         )
 
 
@@ -366,8 +420,8 @@ class CheckpointController:
 
         Returns the action selected by the human, or CONTINUE in auto mode.
         """
-        # 1. Collect current assets
-        assets = self._collect_assets(stage)
+        # 1. Build semantic review directory (symlinks to real assets)
+        review_dir, assets = self._build_review_snapshot(stage)
 
         # 2. Build snapshot
         snapshot = CheckpointSnapshot(
@@ -384,12 +438,16 @@ class CheckpointController:
             cost_usd=cost_usd,
             pipeline_config=self._pipeline_config,
             remaining_stages=remaining_stages or [],
+            review_dir=str(review_dir),
         )
 
-        # 3. Always save (audit trail)
+        # 3. Write a human-readable summary into the review directory
+        self._write_review_summary(review_dir, snapshot)
+
+        # 4. Always save JSON checkpoint (audit trail)
         await self.manager.save_async(snapshot)
 
-        # 4. Emit event
+        # 5. Emit event
         from videoclaw.core.events import CHECKPOINT_SAVED, event_bus
         await event_bus.emit(CHECKPOINT_SAVED, {
             "checkpoint_id": snapshot.checkpoint_id,
@@ -397,120 +455,239 @@ class CheckpointController:
             "series_id": snapshot.series_id,
             "episode_number": snapshot.episode_number,
             "assets_count": len(assets),
+            "review_dir": str(review_dir),
         })
 
-        # 5. Pause if interactive and this stage is in breakpoints
+        # 6. Pause if interactive and this stage is in breakpoints
         if self._should_pause(stage):
             return self._display_checkpoint_ui(snapshot)
 
         return CheckpointAction.CONTINUE
 
-    def _collect_assets(self, stage: CheckpointStage) -> dict[str, str]:
-        """Scan the series directory for assets relevant to this checkpoint.
+    # ------------------------------------------------------------------
+    # Semantic review snapshot
+    # ------------------------------------------------------------------
 
-        Returns a dict mapping logical asset name to path relative to
-        ``projects_dir``, so checkpoints survive directory relocation.
+    def _build_review_snapshot(
+        self, stage: CheckpointStage,
+    ) -> tuple[Path, dict[str, str]]:
+        """Create a semantic review directory with symlinks to actual assets.
+
+        The review directory is the primary interface for human inspection:
+        every file name is derived from scene descriptions, not from IDs or
+        hashes.  Symlinks avoid duplicating large media files.
+
+        Returns ``(review_dir_path, assets_dict)``.
         """
-        from videoclaw.config import get_config
-        projects_dir = get_config().projects_dir
+        projects_dir = self.manager.base_dir
         series_dir = projects_dir / "dramas" / self.series.series_id
+
+        ep_num = self.episode.number
+        review_dir = series_dir / "review" / f"ep{ep_num:02d}_{stage.value}"
+
+        # Clean previous review for this stage (idempotent)
+        if review_dir.exists():
+            import shutil
+            shutil.rmtree(review_dir)
+        review_dir.mkdir(parents=True, exist_ok=True)
+
         assets: dict[str, str] = {}
 
-        if not series_dir.is_dir():
-            return assets
+        # -- Characters --
+        chars_review = review_dir / "characters"
+        chars_review.mkdir(exist_ok=True)
+        for char in self.series.characters:
+            # Turnaround image (local file)
+            if char.reference_image:
+                src = Path(char.reference_image)
+                if src.exists():
+                    name = f"{_slugify(char.name)}_turnaround{src.suffix}"
+                    dst = chars_review / name
+                    _safe_symlink(src, dst)
+                    assets[f"characters/{name}"] = str(dst)
+            # URL reference (write a .url file for quick access)
+            url = getattr(char, "reference_image_url", None)
+            if url:
+                url_file = chars_review / f"{_slugify(char.name)}_url.txt"
+                url_file.write_text(url, encoding="utf-8")
+                assets[f"characters/{url_file.name}"] = str(url_file)
 
-        def _rel(p: Path) -> str:
-            try:
-                return str(p.relative_to(projects_dir))
-            except ValueError:
-                return str(p)
+        # -- Prompts (text files named after scene descriptions) --
+        prompts_review = review_dir / "prompts"
+        prompts_review.mkdir(exist_ok=True)
+        for idx, scene in enumerate(self.episode.scenes):
+            slug = _scene_slug(idx, scene.description)
+            prompt_file = prompts_review / f"{slug}.txt"
+            prompt_text = (
+                f"Scene: {scene.scene_id}\n"
+                f"Description: {scene.description}\n"
+                f"Duration: {scene.duration_seconds}s\n"
+                f"Characters: {', '.join(scene.characters_present)}\n"
+                f"Dialogue: {scene.dialogue}\n"
+                f"Camera: {scene.camera_movement}\n"
+                f"Shot scale: {scene.shot_scale.value if scene.shot_scale else 'n/a'}\n"
+                f"\n--- Prompt ---\n{scene.effective_prompt}\n"
+            )
+            prompt_file.write_text(prompt_text, encoding="utf-8")
+            assets[f"prompts/{slug}.txt"] = str(prompt_file)
 
-        # Character turnaround sheets
-        chars_dir = series_dir / "characters"
-        if chars_dir.is_dir():
-            for f in chars_dir.iterdir():
-                if f.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp"):
-                    assets[f"characters/{f.name}"] = _rel(f)
-
-        # Consistency manifest
-        manifest_path = series_dir / "consistency_manifest.json"
-        if manifest_path.exists():
-            assets["consistency_manifest.json"] = _rel(manifest_path)
-
-        # Episode-specific assets
-        ep_num = self.episode.number
-        ep_prefix = f"ep{ep_num:02d}"
-
-        # Video clips
-        video_dir = series_dir / f"{ep_prefix}_video"
-        if video_dir.is_dir():
-            for f in video_dir.iterdir():
-                if f.suffix.lower() in (".mp4", ".wav", ".aac"):
-                    assets[f"{ep_prefix}_video/{f.name}"] = _rel(f)
-
-        # Audit reports
-        audit_dir = series_dir / f"{ep_prefix}_audit"
-        if audit_dir.is_dir():
-            for f in audit_dir.iterdir():
-                if f.suffix.lower() in (".json", ".jsonl"):
-                    assets[f"{ep_prefix}_audit/{f.name}"] = _rel(f)
-
-        # ProjectState snapshots (in projects/{project_id}/)
-        if self.episode.project_id:
-            proj_dir = projects_dir / self.episode.project_id
-            if proj_dir.is_dir():
-                state_file = proj_dir / "state.json"
-                if state_file.exists():
-                    assets["project/state.json"] = _rel(state_file)
-                shots_dir = proj_dir / "shots"
-                if shots_dir.is_dir():
-                    for f in shots_dir.iterdir():
-                        if f.suffix.lower() in (".mp4",):
-                            assets[f"project/shots/{f.name}"] = _rel(f)
-
-        # Character reference images from DramaScene.video_asset_path
-        for scene in self.episode.scenes:
+        # -- Videos (symlinks with semantic names) --
+        videos_review = review_dir / "videos"
+        videos_review.mkdir(exist_ok=True)
+        for idx, scene in enumerate(self.episode.scenes):
             if scene.video_asset_path:
-                vp = Path(scene.video_asset_path)
-                if vp.exists():
-                    key = f"scene_videos/{vp.name}"
-                    assets[key] = _rel(vp)
+                src = Path(scene.video_asset_path)
+                if src.exists():
+                    slug = _scene_slug(idx, scene.description)
+                    dst = videos_review / f"{slug}{src.suffix}"
+                    _safe_symlink(src, dst)
+                    assets[f"videos/{slug}{src.suffix}"] = str(dst)
 
-        return assets
+        # Also check project shots dir for video files not yet in scene state
+        if self.episode.project_id:
+            shots_dir = projects_dir / self.episode.project_id / "shots"
+            if shots_dir.is_dir():
+                scene_map = {s.scene_id: (i, s) for i, s in enumerate(self.episode.scenes)}
+                for f in sorted(shots_dir.iterdir()):
+                    if f.suffix.lower() != ".mp4":
+                        continue
+                    # Match shot file to scene by scene_id in filename
+                    matched = False
+                    for sid, (i, sc) in scene_map.items():
+                        if sid in f.name:
+                            slug = _scene_slug(i, sc.description)
+                            dst = videos_review / f"{slug}{f.suffix}"
+                            if not dst.exists():
+                                _safe_symlink(f, dst)
+                                assets[f"videos/{slug}{f.suffix}"] = str(dst)
+                            matched = True
+                            break
+                    if not matched:
+                        # No scene match — link with original name
+                        dst = videos_review / f.name
+                        if not dst.exists():
+                            _safe_symlink(f, dst)
+                            assets[f"videos/{f.name}"] = str(dst)
+
+        # -- Audio (symlinks) --
+        audio_review = review_dir / "audio"
+        audio_review.mkdir(exist_ok=True)
+        for idx, scene in enumerate(self.episode.scenes):
+            slug = _scene_slug(idx, scene.description)
+            if scene.dialogue_audio_path:
+                src = Path(scene.dialogue_audio_path)
+                if src.exists():
+                    dst = audio_review / f"{slug}_dialogue{src.suffix}"
+                    _safe_symlink(src, dst)
+                    assets[f"audio/{slug}_dialogue{src.suffix}"] = str(dst)
+            if scene.narration_audio_path:
+                src = Path(scene.narration_audio_path)
+                if src.exists():
+                    dst = audio_review / f"{slug}_narration{src.suffix}"
+                    _safe_symlink(src, dst)
+                    assets[f"audio/{slug}_narration{src.suffix}"] = str(dst)
+
+        # -- Audit reports --
+        ep_prefix = f"ep{ep_num:02d}"
+        audit_src_dir = series_dir / f"{ep_prefix}_audit"
+        if audit_src_dir.is_dir():
+            audit_review = review_dir / "audit"
+            audit_review.mkdir(exist_ok=True)
+            for f in sorted(audit_src_dir.iterdir()):
+                if f.suffix.lower() in (".json", ".jsonl"):
+                    dst = audit_review / f.name
+                    _safe_symlink(f, dst)
+                    assets[f"audit/{f.name}"] = str(dst)
+
+        # -- Composed video --
+        video_src_dir = series_dir / f"{ep_prefix}_video"
+        if video_src_dir.is_dir():
+            for f in video_src_dir.iterdir():
+                if "final" in f.name.lower() or "composed" in f.name.lower():
+                    dst = review_dir / f"composed_{f.name}"
+                    _safe_symlink(f, dst)
+                    assets[f"composed_{f.name}"] = str(dst)
+
+        return review_dir, assets
+
+    def _write_review_summary(
+        self, review_dir: Path, snapshot: CheckpointSnapshot,
+    ) -> None:
+        """Write a human-readable _REVIEW.txt summary into the review dir."""
+        remaining = ", ".join(snapshot.remaining_stages) or "(done)"
+        lines = [
+            f"Checkpoint: {snapshot.stage.value}",
+            f"Series:     {self.series.title} ({self.series.series_id})",
+            f"Episode:    {snapshot.episode_number}",
+            f"Cost:       ${snapshot.cost_usd:.4f}",
+            f"Created:    {snapshot.created_at}",
+            f"ID:         {snapshot.checkpoint_id}",
+            f"Remaining:  {remaining}",
+            "",
+            "=== Directory Layout ===",
+            "characters/  — Character turnaround sheets + reference URLs",
+            "prompts/     — Enhanced visual prompts per scene (editable!)",
+            "videos/      — Generated video clips per scene",
+            "audio/       — Dialogue + narration audio per scene",
+            "audit/       — Vision QA audit reports",
+            "",
+            "=== Scenes ===",
+        ]
+        for idx, scene in enumerate(self.episode.scenes):
+            slug = _scene_slug(idx, scene.description)
+            status = scene.scene_status or "pending"
+            lines.append(f"  {slug}  [{status}]  {scene.description[:60]}")
+
+        summary_path = review_dir / "_REVIEW.txt"
+        summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def _display_checkpoint_ui(self, snapshot: CheckpointSnapshot) -> CheckpointAction:
-        """Rich interactive UI: show assets and prompt for action."""
+        """Rich interactive UI: show review dir and prompt for action."""
         from rich.console import Console
         from rich.panel import Panel
         from rich.table import Table
+        from rich.tree import Tree
 
         console = Console()
-
-        # Asset table
-        table = Table(
-            title=f"Checkpoint: {snapshot.stage.value}",
-            show_lines=False,
-        )
-        table.add_column("Asset", style="cyan")
-        table.add_column("Path", style="dim")
-
-        for logical_name, rel_path in sorted(snapshot.assets.items()):
-            table.add_row(logical_name, rel_path)
-
         console.print()
-        console.print(table)
 
-        # Summary panel
+        # Review directory — the most important thing
+        review_path = snapshot.review_dir
+        console.print(
+            Panel(
+                f"[bold green]{review_path}[/bold green]",
+                title="[bold] Review Directory — open this folder [/bold]",
+                border_style="green",
+            )
+        )
+
+        # Asset tree (grouped by subdirectory)
+        tree = Tree(f"[bold cyan]{snapshot.stage.value}[/bold cyan]")
+        groups: dict[str, list[str]] = {}
+        for name in sorted(snapshot.assets):
+            parts = name.split("/", 1)
+            group = parts[0] if len(parts) > 1 else "(root)"
+            groups.setdefault(group, []).append(parts[-1] if len(parts) > 1 else name)
+
+        for group, files in sorted(groups.items()):
+            branch = tree.add(f"[bold]{group}/[/bold]  ({len(files)} files)")
+            for f in files[:8]:  # show at most 8 per group
+                branch.add(f"[dim]{f}[/dim]")
+            if len(files) > 8:
+                branch.add(f"[dim]... +{len(files) - 8} more[/dim]")
+
+        console.print(tree)
+
+        # Summary
         remaining = ", ".join(snapshot.remaining_stages) if snapshot.remaining_stages else "(none)"
         console.print(
             Panel(
-                f"[bold]Stage:[/bold]      {snapshot.stage.value}\n"
                 f"[bold]Episode:[/bold]    {snapshot.episode_number}\n"
                 f"[bold]Assets:[/bold]     {len(snapshot.assets)} files\n"
                 f"[bold]Cost:[/bold]       ${snapshot.cost_usd:.4f}\n"
                 f"[bold]Remaining:[/bold]  {remaining}\n"
                 f"[bold]Checkpoint:[/bold] {snapshot.checkpoint_id}",
-                title="[bold cyan]Checkpoint Breakpoint[/bold cyan]",
+                title=f"[bold cyan]Checkpoint: {snapshot.stage.value}[/bold cyan]",
                 border_style="cyan",
             )
         )

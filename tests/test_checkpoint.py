@@ -13,6 +13,8 @@ from videoclaw.drama.checkpoint import (
     CheckpointManager,
     CheckpointSnapshot,
     CheckpointStage,
+    _scene_slug,
+    _slugify,
     resolve_skip_flags,
     restore_from_checkpoint,
 )
@@ -410,3 +412,128 @@ def test_checkpoint_action_values():
     assert CheckpointAction.CONTINUE == "continue"
     assert CheckpointAction.REDO == "redo"
     assert CheckpointAction.ABORT == "abort"
+
+
+# ---------------------------------------------------------------------------
+# Semantic naming helpers
+# ---------------------------------------------------------------------------
+
+
+def test_slugify_basic():
+    assert _slugify("Poolside  Confrontation!") == "poolside_confrontation"
+
+
+def test_slugify_chinese():
+    assert _slugify("池畔对峙 Scene") == "池畔对峙_scene"
+
+
+def test_slugify_empty():
+    assert _slugify("") == ""
+
+
+def test_slugify_max_len():
+    result = _slugify("a very long description that should be truncated", max_len=10)
+    assert len(result) <= 10
+
+
+def test_scene_slug():
+    assert _scene_slug(0, "Poolside arrival") == "s01_poolside_arrival"
+    assert _scene_slug(2, "Eye contact across the pool") == "s03_eye_contact_across_the_pool"
+
+
+def test_scene_slug_empty_description():
+    assert _scene_slug(0, "") == "s01_scene"
+
+
+def test_scene_slug_special_chars():
+    assert _scene_slug(4, "Lucian's gaze (close-up)") == "s05_lucians_gaze_close_up"
+
+
+# ---------------------------------------------------------------------------
+# Review directory (snapshot with review_dir)
+# ---------------------------------------------------------------------------
+
+
+def test_snapshot_roundtrip_with_review_dir():
+    snap = _make_snapshot(review_dir="/tmp/review/ep01_after_design")
+    data = snap.to_dict()
+    assert data["review_dir"] == "/tmp/review/ep01_after_design"
+
+    restored = CheckpointSnapshot.from_dict(data)
+    assert restored.review_dir == "/tmp/review/ep01_after_design"
+
+
+@pytest.mark.asyncio
+async def test_controller_builds_review_dir(tmp_path: Path):
+    """Checkpoint should create a semantic review directory with prompts."""
+    from videoclaw.drama.models import DramaManager, DramaSeries, DramaScene, Episode
+
+    series = DramaSeries(
+        series_id="review_test_001",
+        title="Review Test",
+        genre="test",
+        synopsis="test",
+    )
+    scene1 = DramaScene(
+        scene_id="ep01_s01",
+        description="Poolside arrival at sunset",
+        visual_prompt="A man walks to the pool at sunset.",
+    )
+    scene2 = DramaScene(
+        scene_id="ep01_s02",
+        description="Eye contact across pool",
+        visual_prompt="Two characters lock eyes across the water.",
+    )
+    episode = Episode(
+        episode_id="ep1",
+        number=1,
+        title="Pilot",
+        synopsis="test",
+        opening_hook="",
+        scenes=[scene1, scene2],
+    )
+    series.episodes.append(episode)
+
+    drama_mgr = DramaManager(base_dir=tmp_path)
+    drama_mgr.save(series)
+
+    ckpt_mgr = CheckpointManager(base_dir=tmp_path)
+    ctrl = CheckpointController(
+        series=series,
+        episode=episode,
+        manager=ckpt_mgr,
+        drama_manager=drama_mgr,
+        breakpoints=[],
+        interactive=False,
+    )
+
+    action = await ctrl.checkpoint(
+        CheckpointStage.AFTER_DESIGN,
+        cost_usd=0.1,
+        remaining_stages=["run"],
+    )
+    assert action == CheckpointAction.CONTINUE
+
+    # Verify review directory structure
+    review_dir = tmp_path / "dramas" / "review_test_001" / "review" / "ep01_after_design"
+    assert review_dir.is_dir()
+
+    # Prompts should exist with semantic names
+    prompts_dir = review_dir / "prompts"
+    assert prompts_dir.is_dir()
+    prompt_files = sorted(prompts_dir.iterdir())
+    assert len(prompt_files) == 2
+    assert "s01_poolside_arrival_at_sunset" in prompt_files[0].name
+    assert "s02_eye_contact_across_pool" in prompt_files[1].name
+
+    # _REVIEW.txt summary should exist
+    summary = review_dir / "_REVIEW.txt"
+    assert summary.exists()
+    content = summary.read_text()
+    assert "Review Test" in content
+    assert "Poolside arrival" in content
+
+    # Characters and videos dirs should be created (even if empty)
+    assert (review_dir / "characters").is_dir()
+    assert (review_dir / "videos").is_dir()
+    assert (review_dir / "audio").is_dir()

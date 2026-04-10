@@ -420,7 +420,6 @@ def checkpoint_assets(
     out = get_output()
     out._command = "drama.checkpoint-assets"
 
-    from videoclaw.config import get_config
     from videoclaw.drama.checkpoint import CheckpointManager
 
     mgr = CheckpointManager()
@@ -432,35 +431,50 @@ def checkpoint_assets(
         out.emit()
         raise typer.Exit(code=1)
 
-    projects_dir = get_config().projects_dir
+    # Show the semantic review directory prominently
+    if snapshot.review_dir:
+        from rich.panel import Panel
+        review_path = Path(snapshot.review_dir)
+        exists_str = "[green]exists[/green]" if review_path.is_dir() else "[red]missing[/red]"
+        console.print(
+            Panel(
+                f"[bold]{snapshot.review_dir}[/bold]  ({exists_str})",
+                title="[bold green] Review Directory [/bold green]",
+                border_style="green",
+            )
+        )
 
     from rich.table import Table
 
     table = Table(title=f"Assets — checkpoint {checkpoint_id}")
     table.add_column("Name", style="cyan")
-    table.add_column("Path", style="dim")
     table.add_column("Exists", justify="center")
 
-    for name, rel_path in sorted(snapshot.assets.items()):
-        abs_path = projects_dir / rel_path
+    for name, abs_path_str in sorted(snapshot.assets.items()):
+        abs_path = Path(abs_path_str)
         exists = "[green]Y[/green]" if abs_path.exists() else "[red]N[/red]"
-        table.add_row(name, str(rel_path), exists)
+        table.add_row(name, exists)
 
     console.print(table)
 
     if open_dir:
-        # Open the checkpoints directory in the system file manager
-        ckpt_dir = projects_dir / "dramas" / series_id / "checkpoints"
-        if ckpt_dir.is_dir():
-            if sys.platform == "darwin":
-                subprocess.run(["open", str(ckpt_dir)], check=False)  # noqa: S603, S607
-            elif sys.platform == "win32":
-                subprocess.run(["explorer", str(ckpt_dir)], check=False)  # noqa: S603, S607
-            else:
-                subprocess.run(["xdg-open", str(ckpt_dir)], check=False)  # noqa: S603, S607
-            console.print(f"[green]Opened {ckpt_dir}[/green]")
+        # Open the REVIEW directory (not the checkpoints JSON dir)
+        target = Path(snapshot.review_dir) if snapshot.review_dir else None
+        if target and target.is_dir():
+            _open_in_file_manager(target)
+            console.print(f"[green]Opened {target}[/green]")
         else:
-            console.print(f"[yellow]Directory not found: {ckpt_dir}[/yellow]")
+            console.print("[yellow]Review directory not found on disk.[/yellow]")
 
-    out.set_result({"assets_count": len(snapshot.assets)})
+    out.set_result({"assets_count": len(snapshot.assets), "review_dir": snapshot.review_dir})
     out.emit()
+
+
+def _open_in_file_manager(path: Path) -> None:
+    """Open a directory in the platform file manager."""
+    if sys.platform == "darwin":
+        subprocess.run(["open", str(path)], check=False)  # noqa: S603, S607
+    elif sys.platform == "win32":
+        subprocess.run(["explorer", str(path)], check=False)  # noqa: S603, S607
+    else:
+        subprocess.run(["xdg-open", str(path)], check=False)  # noqa: S603, S607
