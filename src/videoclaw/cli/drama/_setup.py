@@ -325,9 +325,15 @@ async def _drama_import_async(
     mgr.save(series)
 
     # 4b. Generate storyboard.md immediately for each episode
-    from videoclaw.drama.checkpoint import generate_storyboard_md
+    from videoclaw.config import get_config
+    from videoclaw.drama.checkpoint import (
+        generate_storyboard_md,
+        review_dir_for_episode,
+    )
+    deliverables_dir = get_config().deliverables_dir
     for ep in series.episodes:
-        sb_path = generate_storyboard_md(series, ep)
+        review_dir = review_dir_for_episode(series, ep, base_dir=deliverables_dir)
+        sb_path = generate_storyboard_md(series, ep, review_dir=review_dir)
         console.print(f"  [green]Storyboard written:[/green] {sb_path}")
 
     # 5. Display results

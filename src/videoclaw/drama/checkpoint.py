@@ -159,9 +159,185 @@ def generate_storyboard_md(
     lines.append("## 分镜详情\n")
     _write_scene_details(lines, scenes)
 
+    # ---- 台词逐字稿 (subtitle source of truth) ----
+    _write_dialogue_transcript(lines, scenes)
+
     p = review_dir / "storyboard.md"
     p.write_text("\n".join(lines), encoding="utf-8")
     return p
+
+
+def build_review_dir(
+    series: DramaSeries,
+    episode: Episode,
+    *,
+    deliverables_dir: Path,
+    projects_dir: Path,
+) -> Path:
+    """Build / refresh the complete review directory for an episode.
+
+    This is the **stage-agnostic** entry point shared by
+    :class:`CheckpointController` (per-stage incremental updates) and
+    ``claw drama export`` (one-shot rebuild).  Both produce the exact
+    same on-disk layout so auditors never see two conflicting shapes.
+
+    Layout::
+
+        {deliverables_dir}/{drama_slug}/{episode_slug}/
+        ├── storyboard.md
+        ├── characters/   (lazy)
+        ├── scenes/       (lazy)
+        ├── videos/       (lazy)
+        ├── audio/        (lazy)
+        ├── audit/        (lazy)
+        └── final/        (lazy)
+
+    The function is idempotent and non-destructive — existing files are
+    either preserved or versioned (``{stem}_v{N}{ext}``) per the rules
+    in :func:`_safe_symlink`.
+
+    Returns the review directory path.
+    """
+    review_dir = review_dir_for_episode(series, episode, base_dir=deliverables_dir)
+    review_dir.mkdir(parents=True, exist_ok=True)
+
+    series_dir = projects_dir / "dramas" / series.series_id
+
+    _update_characters_dir(series, review_dir / "characters")
+    _update_scenes_dir(series, review_dir / "scenes")
+    _update_videos_dir(series, episode, review_dir / "videos", projects_dir)
+    _update_audio_dir(series, episode, review_dir / "audio")
+    _update_audit_dir(episode, review_dir / "audit", series_dir)
+    _update_final_dir(episode, review_dir / "final", series_dir)
+
+    generate_storyboard_md(series, episode, review_dir=review_dir)
+    return review_dir
+
+
+# ---------------------------------------------------------------------------
+# Module-level subdirectory updaters
+#
+# These are the atoms used by both CheckpointController and build_review_dir.
+# Each updater must ``mkdir(parents=True, exist_ok=True)`` *only* before
+# writing the first file / symlink, so empty subdirectories never appear.
+# ---------------------------------------------------------------------------
+
+
+def _update_characters_dir(series: DramaSeries, chars_dir: Path) -> None:
+    for char in series.characters:
+        if char.reference_image:
+            src = Path(char.reference_image)
+            if src.exists():
+                chars_dir.mkdir(parents=True, exist_ok=True)
+                name = f"{_slugify(char.name)}_turnaround{src.suffix}"
+                _safe_symlink(src, chars_dir / name)
+        url = getattr(char, "reference_image_url", None)
+        if url:
+            chars_dir.mkdir(parents=True, exist_ok=True)
+            url_file = chars_dir / f"{_slugify(char.name)}_url.txt"
+            url_file.write_text(url, encoding="utf-8")
+
+
+def _update_scenes_dir(series: DramaSeries, scenes_dir: Path) -> None:
+    """Symlink scene/location reference images (景别图 / 场景参考图).
+
+    Reads from ``series.consistency_manifest.scene_references`` (populated
+    by ``scene_designer.py`` during the design stage).  No-ops when the
+    manifest is empty or absent.
+    """
+    manifest = getattr(series, "consistency_manifest", None)
+    refs = getattr(manifest, "scene_references", None) or {}
+    for loc_name, ref_path in refs.items():
+        if not ref_path:
+            continue
+        src = Path(ref_path)
+        if not src.exists():
+            continue
+        scenes_dir.mkdir(parents=True, exist_ok=True)
+        slug = _slugify(loc_name, max_len=40) or "location"
+        dst = scenes_dir / f"{slug}{src.suffix}"
+        _safe_symlink(src, dst)
+
+
+def _update_videos_dir(
+    series: DramaSeries,
+    episode: Episode,
+    videos_dir: Path,
+    projects_dir: Path,
+) -> None:
+    for idx, scene in enumerate(episode.scenes):
+        if scene.video_asset_path:
+            src = Path(scene.video_asset_path)
+            if src.exists():
+                videos_dir.mkdir(parents=True, exist_ok=True)
+                slug = _scene_slug(idx, scene.description)
+                dst = videos_dir / f"{slug}{src.suffix}"
+                _safe_symlink(src, dst, keep_versions=True)
+
+    # Also check project shots dir for video files not yet in scene state
+    if episode.project_id:
+        shots_dir = projects_dir / episode.project_id / "shots"
+        if shots_dir.is_dir():
+            scene_map = {s.scene_id: (i, s) for i, s in enumerate(episode.scenes)}
+            for f in sorted(shots_dir.iterdir()):
+                if f.suffix.lower() != ".mp4":
+                    continue
+                for sid, (i, sc) in scene_map.items():
+                    if sid in f.name:
+                        videos_dir.mkdir(parents=True, exist_ok=True)
+                        slug = _scene_slug(i, sc.description)
+                        dst = videos_dir / f"{slug}{f.suffix}"
+                        if not (dst.exists() or dst.is_symlink()):
+                            _safe_symlink(f, dst, keep_versions=True)
+                        break
+
+
+def _update_audio_dir(
+    series: DramaSeries,
+    episode: Episode,
+    audio_dir: Path,
+) -> None:
+    for idx, scene in enumerate(episode.scenes):
+        slug = _scene_slug(idx, scene.description)
+        if scene.dialogue_audio_path:
+            src = Path(scene.dialogue_audio_path)
+            if src.exists():
+                audio_dir.mkdir(parents=True, exist_ok=True)
+                _safe_symlink(src, audio_dir / f"{slug}_dialogue{src.suffix}", keep_versions=True)
+        if scene.narration_audio_path:
+            src = Path(scene.narration_audio_path)
+            if src.exists():
+                audio_dir.mkdir(parents=True, exist_ok=True)
+                _safe_symlink(src, audio_dir / f"{slug}_narration{src.suffix}", keep_versions=True)
+
+
+def _update_audit_dir(
+    episode: Episode,
+    audit_dir: Path,
+    series_dir: Path,
+) -> None:
+    ep_prefix = f"ep{episode.number:02d}"
+    audit_src = series_dir / f"{ep_prefix}_audit"
+    if audit_src.is_dir():
+        for f in sorted(audit_src.iterdir()):
+            if f.suffix.lower() in (".json", ".jsonl"):
+                audit_dir.mkdir(parents=True, exist_ok=True)
+                _safe_symlink(f, audit_dir / f.name)
+
+
+def _update_final_dir(
+    episode: Episode,
+    final_dir: Path,
+    series_dir: Path,
+) -> None:
+    """Symlink the composed episode video into ``final/``."""
+    ep_prefix = f"ep{episode.number:02d}"
+    video_src = series_dir / f"{ep_prefix}_video"
+    if video_src.is_dir():
+        for f in video_src.iterdir():
+            if "final" in f.name.lower() or "composed" in f.name.lower():
+                final_dir.mkdir(parents=True, exist_ok=True)
+                _safe_symlink(f, final_dir / f.name, keep_versions=True)
 
 
 def _write_duration_analysis(lines: list[str], scenes: list) -> None:
@@ -285,6 +461,58 @@ def _write_scene_details(lines: list[str], scenes: list) -> None:
                 lines.append("---\n")
 
 
+def _write_dialogue_transcript(lines: list[str], scenes: list[Any]) -> None:
+    """Append the ``## 台词逐字稿`` section — every dialogue and
+    narration line, in scene order.
+
+    This section is the single source of truth for subtitles.  Seedance
+    bakes subtitles directly into the generated video, so VideoClaw does
+    not maintain a separate ``subtitles/`` directory; producers who need
+    to review or re-edit subtitle text read this section instead.
+
+    Scenes with neither dialogue nor narration are skipped so the
+    transcript stays dense and scannable.
+    """
+    has_any = any(
+        (s.dialogue and s.dialogue.strip())
+        or (s.narration and s.narration.strip())
+        for s in scenes
+    )
+    if not has_any:
+        return
+
+    lines.append("## 台词逐字稿\n")
+    lines.append(
+        "> 字幕由 Seedance 直接烧录到视频中；本段为原文备份，供后期复核 / 重录使用。\n"
+    )
+
+    for idx, s in enumerate(scenes):
+        dialogue = (s.dialogue or "").strip()
+        narration = (s.narration or "").strip()
+        if not dialogue and not narration:
+            continue
+
+        slug = _scene_slug(idx, s.description)
+        lines.append(f"### {slug}\n")
+
+        if dialogue:
+            speaker = s.speaking_character or "?"
+            dlg_type = (
+                "内心独白"
+                if s.dialogue_line_type == "inner_monologue"
+                else "台词"
+            )
+            lines.append(f'**{dlg_type}** ({speaker}): "{dialogue}"\n')
+
+        if narration:
+            nar_type = (
+                "旁白"
+                if s.narration_type == "voiceover"
+                else "字幕卡"
+            )
+            lines.append(f"**{nar_type}**: {narration}\n")
+
+
 def _version_existing(path: Path) -> None:
     """If *path* exists, rename it to ``{stem}_v{N}{suffix}`` to preserve history.
 
@@ -303,6 +531,39 @@ def _version_existing(path: Path) -> None:
             logger.debug("Versioned: %s → %s", path.name, versioned.name)
             return
         version += 1
+
+
+def _first_symlink_source(subdir: Path) -> str:
+    """Return a human-readable source path for the first symlink in *subdir*.
+
+    Used by ``_REVIEW.txt``'s ``=== Sources ===`` section so auditors can
+    see the real location (typically ``projects/<uuid>/shots/``) of the
+    files that ``ls -la`` otherwise hides behind opaque symlink targets.
+
+    - If *subdir* does not exist or is empty, returns ``"(empty)"``.
+    - If the first file is a symlink, returns its parent directory as a
+      path relative to the current working directory (so ``projects/foo``
+      rather than the full absolute path when possible).
+    - If the first file is a regular file (not a symlink), returns
+      ``"(local files)"`` — meaning the review dir owns the bytes directly.
+    """
+    if not subdir.is_dir():
+        return "(empty)"
+    entries = [f for f in sorted(subdir.iterdir()) if f.is_file() or f.is_symlink()]
+    if not entries:
+        return "(empty)"
+    first = entries[0]
+    if first.is_symlink():
+        target_parent = first.readlink()
+        if not target_parent.is_absolute():
+            target_parent = (subdir / target_parent).resolve().parent
+        else:
+            target_parent = target_parent.parent
+        try:
+            return str(target_parent.relative_to(Path.cwd()))
+        except ValueError:
+            return str(target_parent)
+    return "(local files)"
 
 
 def _safe_symlink(src: Path, dst: Path, *, keep_versions: bool = False) -> None:
@@ -868,108 +1129,30 @@ class CheckpointController:
         assets = self._collect_all_assets(review_dir)
         return review_dir, assets
 
-    # -- Per-subdirectory updaters (only called for relevant stages) --
+    # -- Per-subdirectory updaters (thin wrappers around module-level helpers) --
     #
-    # Every updater must ``mkdir(parents=True, exist_ok=True)`` *only* before
-    # writing the first file / symlink, so empty subdirectories never appear.
+    # Kept as methods for backwards compatibility with any existing tests
+    # that patched them; all production logic lives in the module-level
+    # ``_update_*_dir`` functions so ``build_review_dir`` and the controller
+    # stay byte-for-byte identical.
 
     def _update_characters(self, chars_dir: Path) -> None:
-        for char in self.series.characters:
-            if char.reference_image:
-                src = Path(char.reference_image)
-                if src.exists():
-                    chars_dir.mkdir(parents=True, exist_ok=True)
-                    name = f"{_slugify(char.name)}_turnaround{src.suffix}"
-                    _safe_symlink(src, chars_dir / name)
-            url = getattr(char, "reference_image_url", None)
-            if url:
-                chars_dir.mkdir(parents=True, exist_ok=True)
-                url_file = chars_dir / f"{_slugify(char.name)}_url.txt"
-                url_file.write_text(url, encoding="utf-8")
+        _update_characters_dir(self.series, chars_dir)
 
     def _update_scenes(self, scenes_dir: Path) -> None:
-        """Symlink scene/location reference images (景别图 / 场景参考图).
-
-        Reads from ``series.consistency_manifest.scene_references`` which
-        is populated by ``scene_designer.py`` during the design stage.
-        Gracefully no-ops when the manifest is empty or absent.
-        """
-        manifest = getattr(self.series, "consistency_manifest", None)
-        refs = getattr(manifest, "scene_references", None) or {}
-        for loc_name, ref_path in refs.items():
-            if not ref_path:
-                continue
-            src = Path(ref_path)
-            if not src.exists():
-                continue
-            scenes_dir.mkdir(parents=True, exist_ok=True)
-            slug = _slugify(loc_name, max_len=40) or "location"
-            dst = scenes_dir / f"{slug}{src.suffix}"
-            _safe_symlink(src, dst)
+        _update_scenes_dir(self.series, scenes_dir)
 
     def _update_videos(self, videos_dir: Path, projects_dir: Path) -> None:
-        for idx, scene in enumerate(self.episode.scenes):
-            if scene.video_asset_path:
-                src = Path(scene.video_asset_path)
-                if src.exists():
-                    videos_dir.mkdir(parents=True, exist_ok=True)
-                    slug = _scene_slug(idx, scene.description)
-                    dst = videos_dir / f"{slug}{src.suffix}"
-                    _safe_symlink(src, dst, keep_versions=True)
-
-        # Also check project shots dir for video files not yet in scene state
-        if self.episode.project_id:
-            shots_dir = projects_dir / self.episode.project_id / "shots"
-            if shots_dir.is_dir():
-                scene_map = {s.scene_id: (i, s) for i, s in enumerate(self.episode.scenes)}
-                for f in sorted(shots_dir.iterdir()):
-                    if f.suffix.lower() != ".mp4":
-                        continue
-                    for sid, (i, sc) in scene_map.items():
-                        if sid in f.name:
-                            videos_dir.mkdir(parents=True, exist_ok=True)
-                            slug = _scene_slug(i, sc.description)
-                            dst = videos_dir / f"{slug}{f.suffix}"
-                            if not (dst.exists() or dst.is_symlink()):
-                                _safe_symlink(f, dst, keep_versions=True)
-                            break
+        _update_videos_dir(self.series, self.episode, videos_dir, projects_dir)
 
     def _update_audio(self, audio_dir: Path) -> None:
-        for idx, scene in enumerate(self.episode.scenes):
-            slug = _scene_slug(idx, scene.description)
-            if scene.dialogue_audio_path:
-                src = Path(scene.dialogue_audio_path)
-                if src.exists():
-                    audio_dir.mkdir(parents=True, exist_ok=True)
-                    _safe_symlink(src, audio_dir / f"{slug}_dialogue{src.suffix}", keep_versions=True)
-            if scene.narration_audio_path:
-                src = Path(scene.narration_audio_path)
-                if src.exists():
-                    audio_dir.mkdir(parents=True, exist_ok=True)
-                    _safe_symlink(src, audio_dir / f"{slug}_narration{src.suffix}", keep_versions=True)
+        _update_audio_dir(self.series, self.episode, audio_dir)
 
     def _update_audit(self, audit_dir: Path, series_dir: Path) -> None:
-        ep_prefix = f"ep{self.episode.number:02d}"
-        audit_src = series_dir / f"{ep_prefix}_audit"
-        if audit_src.is_dir():
-            for f in sorted(audit_src.iterdir()):
-                if f.suffix.lower() in (".json", ".jsonl"):
-                    audit_dir.mkdir(parents=True, exist_ok=True)
-                    _safe_symlink(f, audit_dir / f.name)
+        _update_audit_dir(self.episode, audit_dir, series_dir)
 
     def _update_final(self, final_dir: Path, series_dir: Path) -> None:
-        """Symlink the composed episode video into ``final/``.
-
-        Previously named ``_update_composed`` with a ``composed/`` subdir;
-        renamed to match producer vocabulary (成片 = final).
-        """
-        ep_prefix = f"ep{self.episode.number:02d}"
-        video_src = series_dir / f"{ep_prefix}_video"
-        if video_src.is_dir():
-            for f in video_src.iterdir():
-                if "final" in f.name.lower() or "composed" in f.name.lower():
-                    final_dir.mkdir(parents=True, exist_ok=True)
-                    _safe_symlink(f, final_dir / f.name, keep_versions=True)
+        _update_final_dir(self.episode, final_dir, series_dir)
 
     # ------------------------------------------------------------------
     # Storyboard document — delegates to module-level functions
@@ -1028,6 +1211,13 @@ class CheckpointController:
             count = subdir_counts.get(subdir, 0)
             label = _SUBDIR_LABELS.get(subdir, "")
             lines.append(f"  {subdir + '/':<14s} {count:>3d} files  ({label})")
+
+        # --- Sources: show where each populated subdir's symlinks point ---
+        lines.append("")
+        lines.append("=== Sources ===")
+        for subdir in self._ALL_SUBDIRS:
+            source = _first_symlink_source(review_dir / subdir)
+            lines.append(f"  {subdir + '/':<14s} → {source}")
 
         lines.append("")
         lines.append("=== Scenes ===")

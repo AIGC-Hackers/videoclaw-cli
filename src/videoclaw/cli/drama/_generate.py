@@ -339,6 +339,7 @@ async def _drama_run_async(
 ) -> None:
     console = get_console()
 
+    from rich.panel import Panel  # deferred
     from rich.progress import (  # deferred — rich.progress costs ~87ms at startup
         BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeElapsedColumn,
     )

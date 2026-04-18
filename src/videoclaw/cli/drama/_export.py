@@ -1,47 +1,33 @@
-"""``claw drama export`` — export structured deliverables for human review.
+"""``claw drama export`` — rebuild the human-readable review directory.
 
-Collects all intermediate and final assets from a drama series into a
-single structured directory under ``docs/deliverables/``, organized by
-pipeline stage for easy manual inspection.
+Exports an episode's deliverables into the canonical review layout shared
+with the checkpoint system::
 
-Output structure::
+    docs/deliverables/{drama_slug}/{episode_slug}/
+    ├── _REVIEW.txt
+    ├── storyboard.md
+    ├── characters/   (symlinks, if present)
+    ├── scenes/       (symlinks, if present)
+    ├── audio/        (symlinks, if present)
+    ├── videos/       (symlinks, if present)
+    ├── audit/        (symlinks, if present)
+    └── final/        (symlinks, if present)
 
-    docs/deliverables/{series_slug}/
-    ├── 00_metadata/
-    │   ├── series.json
-    │   └── state.json
-    ├── 01_script/
-    │   └── ep{N}_scenes.json
-    ├── 02_characters/
-    │   ├── {name}_turnaround.png
-    │   └── characters.json
-    ├── 03_scenes/
-    │   ├── scene_{location}.png
-    │   ├── prop_{name}.png
-    │   └── assets.json
-    ├── 04_prompts/
-    │   └── ep{N}_prompts.json
-    ├── 05_video_clips/
-    │   ├── ep{N}_{scene_id}.mp4
-    │   └── manifest.json
-    ├── 06_audio/
-    │   ├── ep{N}_{scene_id}_dialogue.wav
-    │   └── manifest.json
-    ├── 07_subtitles/
-    │   └── ep{N}_subtitles.{ass,srt}
-    ├── 08_composition/
-    │   └── ep{N}_composed_final.mp4
-    ├── 09_final/
-    │   └── ep{N}_final.mp4
-    └── 10_audit/
-        └── ep{N}_audit_report.json
+Historically this command wrote its own stage-numbered layout
+(``00_metadata/``, ``01_script/``, …, ``10_audit/``) that conflicted with
+the checkpoint system.  It now delegates to
+:func:`videoclaw.drama.checkpoint.build_review_dir` so there is exactly
+one on-disk shape.
+
+With ``--copy``, symlinks are dereferenced into physical files after the
+build — used when packaging deliverables for clients who can't follow
+local symlinks.  With ``--publish``, the composed final video is pushed
+to a platform after export completes.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
-import re
 import shutil
 from pathlib import Path
 from typing import Annotated
@@ -56,22 +42,22 @@ from videoclaw.cli._app import (
 from videoclaw.cli._output import get_console, get_output
 
 
-def _slugify(text: str) -> str:
-    """Convert a title to a filesystem-safe slug."""
-    text = re.sub(r"[^\w\s-]", "", text.strip().lower())
-    return re.sub(r"[\s_]+", "_", text).strip("_") or "untitled"
+def _materialize_symlinks(review_dir: Path) -> int:
+    """Replace every symlink under *review_dir* with a real file copy.
 
-
-def _copy_if_exists(src: str | Path | None, dst: Path) -> bool:
-    """Copy a file if the source exists. Returns True on success."""
-    if not src:
-        return False
-    src_path = Path(src)
-    if not src_path.exists():
-        return False
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src_path, dst)
-    return True
+    Returns the number of symlinks materialized.  Used by ``--copy`` so
+    the exported directory is self-contained (portable across machines).
+    """
+    count = 0
+    for path in review_dir.rglob("*"):
+        if path.is_symlink():
+            target = path.resolve()
+            if not target.is_file():
+                continue
+            path.unlink()
+            shutil.copy2(target, path)
+            count += 1
+    return count
 
 
 @drama_app.command("export")
@@ -87,9 +73,22 @@ def drama_export(
         str,
         typer.Option(
             "--output", "-o",
-            help="Output directory (default: docs/deliverables/{title}).",
+            help=(
+                "Override the deliverables root "
+                "(default: config.deliverables_dir → docs/deliverables)."
+            ),
         ),
     ] = "",
+    copy_mode: Annotated[
+        bool,
+        typer.Option(
+            "--copy",
+            help=(
+                "Replace symlinks with physical file copies so the "
+                "exported directory is self-contained (client delivery)."
+            ),
+        ),
+    ] = False,
     verbose: Annotated[
         bool, typer.Option("--verbose", "-v")
     ] = False,
@@ -108,21 +107,18 @@ def drama_export(
         ),
     ] = "youtube",
 ) -> None:
-    """Export all intermediate assets to a structured deliverables directory.
+    """Export an episode's deliverables in the canonical review layout.
 
     \b
-    Collects metadata, scripts, character/scene images, enhanced prompts,
-    video clips, audio, subtitles, compositions, final video, and audit
-    reports into a single directory for human review.
-
-    \b
-    With --publish, attempts to upload the final video to the specified
-    platform after export completes.
+    Produces the same directory structure as the checkpoint system, so
+    auditors see one shape regardless of whether the assets were built
+    incrementally via ``claw drama run`` or re-exported after the fact.
 
     \b
     Examples:
         claw drama export 97e8424712d24fb2
-        claw drama export abc123 -e 1 -o ./review/
+        claw drama export abc123 -e 1
+        claw drama export abc123 -e 1 --copy           # self-contained bundle
         claw drama export abc123 --publish --platform tiktok
     """
     configure_logging(verbose)
@@ -132,7 +128,7 @@ def drama_export(
     out._command = "drama.export"
 
     from videoclaw.config import get_config
-    from videoclaw.core.state import StateManager
+    from videoclaw.drama.checkpoint import build_review_dir
     from videoclaw.drama.models import DramaManager
 
     cfg = get_config()
@@ -146,17 +142,9 @@ def drama_export(
         out.emit()
         raise typer.Exit(code=1)
 
-    # Determine output directory
-    if output_dir:
-        base = Path(output_dir)
-    else:
-        slug = _slugify(series.title) if series.title else series_id[:12]
-        base = Path("docs/deliverables") / slug
-
-    console.print(
-        f"[bold cyan]Exporting deliverables:[/bold cyan] "
-        f"{series.title or series_id} → {base}"
-    )
+    # Resolve deliverables root
+    deliverables_dir = Path(output_dir) if output_dir else cfg.deliverables_dir
+    projects_dir = cfg.projects_dir
 
     # Select episodes
     if episode > 0:
@@ -167,338 +155,33 @@ def drama_export(
     else:
         episodes = series.episodes
 
-    stats: dict[str, int] = {}
-
-    # ── 00_metadata ─────────────────────────────────────────────
-    meta_dir = base / "00_metadata"
-    meta_dir.mkdir(parents=True, exist_ok=True)
-
-    series_json = meta_dir / "series.json"
-    series_json.write_text(
-        json.dumps(series.to_dict(), indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    stats["metadata"] = 1
-    console.print("  [green]00_metadata/series.json[/green]")
-
-    # Export project state for each episode
-    state_mgr = StateManager(projects_dir=cfg.projects_dir)
-    for ep in episodes:
-        if ep.project_id:
-            try:
-                state = state_mgr.load(ep.project_id)
-                state_path = meta_dir / f"ep{ep.number:02d}_state.json"
-                state_path.write_text(
-                    json.dumps(state.to_dict(), indent=2, ensure_ascii=False),
-                    encoding="utf-8",
-                )
-                stats["metadata"] = stats.get("metadata", 0) + 1
-                console.print(
-                    f"  [green]00_metadata/ep{ep.number:02d}_state.json[/green]"
-                )
-            except FileNotFoundError:
-                pass
-
-    # ── 01_script ───────────────────────────────────────────────
-    script_dir = base / "01_script"
-    for ep in episodes:
-        if not ep.scenes:
-            continue
-        scenes_data = [sc.to_dict() for sc in ep.scenes]
-        out_path = script_dir / f"ep{ep.number:02d}_scenes.json"
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(
-            json.dumps(scenes_data, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
-        stats["script"] = stats.get("script", 0) + 1
-        console.print(
-            f"  [green]01_script/ep{ep.number:02d}_scenes.json[/green] "
-            f"({len(ep.scenes)} scenes)"
-        )
-
-    # ── 02_characters ───────────────────────────────────────────
-    char_dir = base / "02_characters"
-    char_count = 0
-    char_data = []
-    for c in series.characters:
-        entry = {
-            "name": c.name,
-            "description": c.description,
-            "visual_prompt": c.visual_prompt,
-            "voice_style": c.voice_style,
-            "reference_image_url": c.reference_image_url,
-        }
-        if c.voice_profile:
-            entry["voice_profile"] = c.voice_profile.to_dict()
-
-        # Copy turnaround image
-        if c.reference_image:
-            safe = _slugify(c.name)
-            dst = char_dir / f"{safe}_turnaround.png"
-            if _copy_if_exists(c.reference_image, dst):
-                entry["exported_image"] = str(dst.relative_to(base))
-                char_count += 1
-
-        char_data.append(entry)
-
-    if char_data:
-        char_dir.mkdir(parents=True, exist_ok=True)
-        (char_dir / "characters.json").write_text(
-            json.dumps(char_data, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
-        stats["characters"] = char_count
-        console.print(
-            f"  [green]02_characters/[/green] "
-            f"{len(char_data)} characters, {char_count} images"
-        )
-
-    # ── 03_scenes ───────────────────────────────────────────────
-    scene_dir = base / "03_scenes"
-    scene_count = 0
-    scene_assets = {"locations": [], "props": []}
-
-    # Scene/location images from consistency manifest
-    if series.consistency_manifest:
-        for loc_key, img_path in (
-            series.consistency_manifest.scene_references.items()
-        ):
-            dst = scene_dir / f"scene_{_slugify(loc_key)}.png"
-            if _copy_if_exists(img_path, dst):
-                scene_count += 1
-                scene_assets["locations"].append({
-                    "key": loc_key,
-                    "exported_image": str(dst.relative_to(base)),
-                })
-
-        for prop_name, img_path in (
-            series.consistency_manifest.prop_references.items()
-        ):
-            dst = scene_dir / f"prop_{_slugify(prop_name)}.png"
-            if _copy_if_exists(img_path, dst):
-                scene_count += 1
-                scene_assets["props"].append({
-                    "name": prop_name,
-                    "exported_image": str(dst.relative_to(base)),
-                })
-
-    # Also check metadata for locations/props
-    for loc in series.metadata.get("locations", []):
-        img = loc.get("reference_image")
-        if img and not any(
-            a["key"] == loc.get("name", "") for a in scene_assets["locations"]
-        ):
-            dst = scene_dir / f"scene_{_slugify(loc.get('name', 'unknown'))}.png"
-            if _copy_if_exists(img, dst):
-                scene_count += 1
-                scene_assets["locations"].append({
-                    "key": loc.get("name", ""),
-                    "description": loc.get("description", ""),
-                    "exported_image": str(dst.relative_to(base)),
-                })
-
-    for prop in series.metadata.get("props", []):
-        img = prop.get("reference_image")
-        if img and not any(
-            a["name"] == prop.get("name", "") for a in scene_assets["props"]
-        ):
-            dst = scene_dir / f"prop_{_slugify(prop.get('name', 'unknown'))}.png"
-            if _copy_if_exists(img, dst):
-                scene_count += 1
-                scene_assets["props"].append({
-                    "name": prop.get("name", ""),
-                    "exported_image": str(dst.relative_to(base)),
-                })
-
-    if scene_count > 0:
-        scene_dir.mkdir(parents=True, exist_ok=True)
-        (scene_dir / "assets.json").write_text(
-            json.dumps(scene_assets, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
-        stats["scenes"] = scene_count
-        console.print(
-            f"  [green]03_scenes/[/green] {scene_count} images"
-        )
-
-    # ── 04_prompts ──────────────────────────────────────────────
-    prompt_dir = base / "04_prompts"
-    for ep in episodes:
-        if not ep.scenes:
-            continue
-        prompts = []
-        for sc in ep.scenes:
-            prompts.append({
-                "scene_id": sc.scene_id,
-                "duration": sc.duration_seconds,
-                "shot_scale": sc.shot_scale.value if sc.shot_scale else "",
-                "camera": sc.camera_movement,
-                "characters": sc.characters_present,
-                "dialogue": sc.dialogue,
-                "narration": sc.narration,
-                "original_prompt": sc.description,
-                "enhanced_prompt": sc.effective_prompt,
-            })
-        out_path = prompt_dir / f"ep{ep.number:02d}_prompts.json"
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(
-            json.dumps(prompts, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
-        stats["prompts"] = stats.get("prompts", 0) + len(prompts)
-        console.print(
-            f"  [green]04_prompts/ep{ep.number:02d}_prompts.json[/green] "
-            f"({len(prompts)} scenes)"
-        )
-
-    # ── 05–09: Execution assets (per episode) ───────────────────
-    for ep in episodes:
-        if not ep.project_id:
-            continue
-        proj_dir = cfg.projects_dir / ep.project_id
-        if not proj_dir.exists():
-            continue
-
-        ep_tag = f"ep{ep.number:02d}"
-
-        # 05_video_clips
-        clips_dir = base / "05_video_clips"
-        shots_dir = proj_dir / "shots"
-        clip_manifest = []
-        if shots_dir.exists():
-            for clip in sorted(shots_dir.glob("*.mp4")):
-                # Rename to friendly name: ep01_scene_id.mp4
-                # Extract scene_id from filename pattern session*_{scene_id}_{hash}.mp4
-                parts = clip.stem.split("_")
-                # Try to find scene_id in parts
-                scene_id = "_".join(parts[1:-1]) if len(parts) >= 3 else clip.stem
-                dst = clips_dir / f"{ep_tag}_{scene_id}.mp4"
-                if _copy_if_exists(clip, dst):
-                    clip_manifest.append({
-                        "scene_id": scene_id,
-                        "original": clip.name,
-                        "exported": str(dst.relative_to(base)),
-                        "size_bytes": clip.stat().st_size,
-                    })
-
-            if clip_manifest:
-                clips_dir.mkdir(parents=True, exist_ok=True)
-                (clips_dir / "manifest.json").write_text(
-                    json.dumps(clip_manifest, indent=2, ensure_ascii=False),
-                    encoding="utf-8",
-                )
-                stats["clips"] = stats.get("clips", 0) + len(clip_manifest)
-                console.print(
-                    f"  [green]05_video_clips/[/green] "
-                    f"{len(clip_manifest)} clips ({ep_tag})"
-                )
-
-        # 06_audio
-        audio_src = proj_dir / "audio"
-        if audio_src.exists():
-            audio_dir = base / "06_audio"
-            audio_manifest = []
-            for af in sorted(audio_src.glob("*")):
-                if af.is_file() and af.suffix in (".wav", ".mp3", ".aac"):
-                    dst = audio_dir / f"{ep_tag}_{af.name}"
-                    if _copy_if_exists(af, dst):
-                        audio_manifest.append({
-                            "original": af.name,
-                            "exported": str(dst.relative_to(base)),
-                            "size_bytes": af.stat().st_size,
-                        })
-
-            if audio_manifest:
-                audio_dir.mkdir(parents=True, exist_ok=True)
-                (audio_dir / "manifest.json").write_text(
-                    json.dumps(audio_manifest, indent=2, ensure_ascii=False),
-                    encoding="utf-8",
-                )
-                stats["audio"] = stats.get("audio", 0) + len(audio_manifest)
-                console.print(
-                    f"  [green]06_audio/[/green] "
-                    f"{len(audio_manifest)} files ({ep_tag})"
-                )
-
-        # 07_subtitles
-        for ext in ("ass", "srt", "vtt"):
-            sub_src = proj_dir / f"subtitles.{ext}"
-            if sub_src.exists():
-                sub_dir = base / "07_subtitles"
-                dst = sub_dir / f"{ep_tag}_subtitles.{ext}"
-                if _copy_if_exists(sub_src, dst):
-                    stats["subtitles"] = stats.get("subtitles", 0) + 1
-                    console.print(
-                        f"  [green]07_subtitles/{ep_tag}_subtitles.{ext}[/green]"
-                    )
-
-        # 08_composition
-        for comp_name in ("composed.mp4", "composed_final.mp4"):
-            comp_src = proj_dir / comp_name
-            if comp_src.exists():
-                comp_dir = base / "08_composition"
-                dst = comp_dir / f"{ep_tag}_{comp_name}"
-                if _copy_if_exists(comp_src, dst):
-                    stats["composition"] = stats.get("composition", 0) + 1
-                    console.print(
-                        f"  [green]08_composition/{ep_tag}_{comp_name}[/green]"
-                    )
-
-        # 09_final
-        final_src = proj_dir / "final.mp4"
-        if final_src.exists():
-            final_dir = base / "09_final"
-            dst = final_dir / f"{ep_tag}_final.mp4"
-            if _copy_if_exists(final_src, dst):
-                stats["final"] = stats.get("final", 0) + 1
-                console.print(
-                    f"  [green]09_final/{ep_tag}_final.mp4[/green]"
-                )
-
-    # ── 10_audit ────────────────────────────────────────────────
-    audit_dir = base / "10_audit"
-    for ep in episodes:
-        if not ep.scenes:
-            continue
-        audit_data = []
-        has_audit = False
-        for sc in ep.scenes:
-            if sc.audit_result:
-                has_audit = True
-                audit_data.append({
-                    "scene_id": sc.scene_id,
-                    **sc.audit_result,
-                })
-            else:
-                audit_data.append({
-                    "scene_id": sc.scene_id,
-                    "status": "not_audited",
-                })
-
-        if has_audit:
-            out_path = audit_dir / f"ep{ep.number:02d}_audit_report.json"
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            out_path.write_text(
-                json.dumps(audit_data, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
-            stats["audit"] = stats.get("audit", 0) + len(audit_data)
-            console.print(
-                f"  [green]10_audit/ep{ep.number:02d}_audit_report.json[/green]"
-            )
-
-    # ── Summary ─────────────────────────────────────────────────
-    total = sum(stats.values())
     console.print(
-        f"\n[bold green]Export complete:[/bold green] "
-        f"{total} assets → {base}"
+        f"[bold cyan]Exporting deliverables:[/bold cyan] "
+        f"{series.title or series_id}  →  {deliverables_dir}"
     )
-    for category, count in sorted(stats.items()):
-        console.print(f"  {category}: {count}")
 
-    # ── Publish bridge ──────────────────────────────────────────
-    publish_result_data: dict | None = None
+    review_dirs: list[Path] = []
+    total_symlinks_copied = 0
+    for ep in episodes:
+        review_dir = build_review_dir(
+            series,
+            ep,
+            deliverables_dir=deliverables_dir,
+            projects_dir=projects_dir,
+        )
+        review_dirs.append(review_dir)
+        console.print(f"  [green]ep{ep.number:02d}[/green] → {review_dir}")
+
+        if copy_mode:
+            materialized = _materialize_symlinks(review_dir)
+            total_symlinks_copied += materialized
+            console.print(
+                f"    [cyan]materialized[/cyan] {materialized} symlinks "
+                f"into physical copies"
+            )
+
+    # ── Publish bridge ──────────────────────────────────────────────────
+    publish_result_data: dict[str, object] | None = None
     if publish:
         platform_lower = platform.lower()
         valid_platforms = ("youtube", "tiktok", "bilibili")
@@ -509,40 +192,46 @@ def drama_export(
             )
             raise typer.Exit(code=1)
 
-        # Find the final video in 09_final/
-        final_dir = base / "09_final"
-        final_videos = sorted(final_dir.glob("*.mp4")) if final_dir.exists() else []
-        if not final_videos:
+        # Find the final video in the first episode's final/ directory
+        final_video: Path | None = None
+        for review_dir in review_dirs:
+            final_dir = review_dir / "final"
+            if final_dir.is_dir():
+                candidates = sorted(final_dir.glob("*.mp4"))
+                if candidates:
+                    final_video = candidates[0]
+                    break
+
+        if final_video is None:
             console.print(
-                "[yellow]No final video found in 09_final/. "
-                "Skipping publish.[/yellow]"
+                "[yellow]No final video found in any episode's final/ "
+                "directory. Skipping publish.[/yellow]"
             )
         else:
-            video_path = final_videos[0]
             console.print(
                 f"\n[bold cyan]Publishing to {platform_lower}:[/bold cyan] "
-                f"{video_path.name}"
+                f"{final_video.name}"
             )
 
             from videoclaw.publishers.base import PublishRequest, PublishStatus
 
-            ep_title = ""
-            if episodes:
-                ep_title = (
-                    episodes[0].title
-                    if hasattr(episodes[0], "title") and episodes[0].title
-                    else f"Episode {episodes[0].number}"
-                )
+            ep0 = episodes[0]
+            ep_title = (
+                ep0.title if hasattr(ep0, "title") and ep0.title
+                else f"Episode {ep0.number}"
+            )
             title = f"{series.title} - {ep_title}" if series.title else ep_title
             description = series.metadata.get("description", "")
 
             request = PublishRequest(
-                video_path=video_path,
+                video_path=final_video,
                 title=title,
                 description=description,
             )
 
-            # Import the appropriate publisher
+            from videoclaw.publishers.base import Publisher
+
+            publisher: Publisher
             if platform_lower == "youtube":
                 from videoclaw.publishers.youtube import YouTubePublisher
                 publisher = YouTubePublisher()
@@ -558,7 +247,7 @@ def drama_export(
             if result.status == PublishStatus.FAILED:
                 console.print(
                     f"[yellow]Publisher for {platform_lower} is not yet "
-                    f"implemented. Video exported to {video_path}.[/yellow]"
+                    f"implemented. Video exported to {final_video}.[/yellow]"
                 )
             elif result.status == PublishStatus.PUBLISHED:
                 console.print(
@@ -576,11 +265,22 @@ def drama_export(
                 "error": result.error,
             }
 
+    # ── Summary ─────────────────────────────────────────────────────────
+    console.print(
+        f"\n[bold green]Export complete:[/bold green] "
+        f"{len(review_dirs)} episode(s)"
+    )
+    if copy_mode:
+        console.print(
+            f"  physical copies: {total_symlinks_copied} files"
+        )
+
     out.set_result({
         "series_id": series_id,
-        "output_dir": str(base),
-        "stats": stats,
-        "total_assets": total,
+        "deliverables_dir": str(deliverables_dir),
+        "review_dirs": [str(d) for d in review_dirs],
+        "copy_mode": copy_mode,
+        "symlinks_materialized": total_symlinks_copied,
         **({"publish": publish_result_data} if publish_result_data else {}),
     })
     out.emit()

@@ -1185,3 +1185,414 @@ async def test_checkpoint_syncs_audio_files(tmp_path, monkeypatch):
     await ctrl.checkpoint(CheckpointStage.AFTER_GENERATION, cost_usd=0.5)
 
     assert scene.dialogue_audio_path == str(dialogue_wav)
+
+
+# ---------------------------------------------------------------------------
+# scenes/ subdir — 景别图 / 场景参考图 from ConsistencyManifest
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_scenes_subdir_populated_from_consistency_manifest(tmp_path: Path):
+    """after_design should symlink scene_references into scenes/.
+
+    The ConsistencyManifest.scene_references dict is populated by
+    scene_designer.py during the design stage; review_dir should surface
+    those images as ``scenes/<loc_slug>.<ext>``.
+    """
+    from videoclaw.drama.models import (
+        ConsistencyManifest,
+        DramaManager,
+        DramaScene,
+        DramaSeries,
+        Episode,
+    )
+
+    # Fake location reference images on disk
+    pool_ref = tmp_path / "pool_deck_reference.png"
+    mansion_ref = tmp_path / "mansion_hall_reference.png"
+    pool_ref.write_bytes(b"pool_png")
+    mansion_ref.write_bytes(b"mansion_png")
+
+    series = DramaSeries(
+        series_id="scenes_test",
+        title="Scenes Test",
+        genre="test",
+        synopsis="test",
+    )
+    series.consistency_manifest = ConsistencyManifest(
+        scene_references={
+            "Pool deck at sunset": str(pool_ref),
+            "Mansion hall": str(mansion_ref),
+        },
+    )
+
+    scene = DramaScene(
+        scene_id="ep01_s01",
+        description="Intro",
+        visual_prompt="A wide shot.",
+    )
+    episode = Episode(
+        episode_id="ep1",
+        number=1,
+        title="Pilot",
+        synopsis="test",
+        opening_hook="",
+        scenes=[scene],
+    )
+    series.episodes.append(episode)
+
+    drama_mgr = DramaManager(base_dir=tmp_path)
+    drama_mgr.save(series)
+
+    ckpt_mgr = CheckpointManager(base_dir=tmp_path)
+    ctrl = CheckpointController(
+        series=series,
+        episode=episode,
+        manager=ckpt_mgr,
+        drama_manager=drama_mgr,
+        breakpoints=[],
+        interactive=False,
+        deliverables_dir=tmp_path,
+    )
+
+    await ctrl.checkpoint(CheckpointStage.AFTER_DESIGN, cost_usd=0.05)
+
+    review_dir = tmp_path / "scenes_test" / "ep01_pilot"
+    scenes_dir = review_dir / "scenes"
+
+    assert scenes_dir.is_dir()
+
+    # Both locations should be symlinked with slugified names
+    expected_files = {"pool_deck_at_sunset.png", "mansion_hall.png"}
+    actual_files = {f.name for f in scenes_dir.iterdir()}
+    assert actual_files == expected_files
+
+    # Each entry must be a symlink pointing at the original file
+    assert (scenes_dir / "pool_deck_at_sunset.png").is_symlink()
+    assert (scenes_dir / "pool_deck_at_sunset.png").resolve() == pool_ref.resolve()
+    assert (scenes_dir / "mansion_hall.png").resolve() == mansion_ref.resolve()
+
+
+@pytest.mark.asyncio
+async def test_scenes_subdir_absent_without_manifest(tmp_path: Path):
+    """scenes/ subdir must not exist when consistency_manifest has no refs."""
+    from videoclaw.drama.models import DramaManager, DramaScene, DramaSeries, Episode
+
+    series = DramaSeries(
+        series_id="no_scenes_test",
+        title="No Scenes Test",
+        genre="test",
+        synopsis="test",
+    )
+    # No consistency_manifest.scene_references populated — default empty
+
+    scene = DramaScene(
+        scene_id="ep01_s01",
+        description="Intro",
+        visual_prompt="A shot.",
+    )
+    episode = Episode(
+        episode_id="ep1",
+        number=1,
+        title="Pilot",
+        synopsis="test",
+        opening_hook="",
+        scenes=[scene],
+    )
+    series.episodes.append(episode)
+
+    drama_mgr = DramaManager(base_dir=tmp_path)
+    drama_mgr.save(series)
+
+    ckpt_mgr = CheckpointManager(base_dir=tmp_path)
+    ctrl = CheckpointController(
+        series=series,
+        episode=episode,
+        manager=ckpt_mgr,
+        drama_manager=drama_mgr,
+        breakpoints=[],
+        interactive=False,
+        deliverables_dir=tmp_path,
+    )
+
+    await ctrl.checkpoint(CheckpointStage.AFTER_DESIGN, cost_usd=0.05)
+
+    review_dir = tmp_path / "no_scenes_test" / "ep01_pilot"
+    assert not (review_dir / "scenes").exists()
+
+
+# ---------------------------------------------------------------------------
+# storyboard.md — 台词逐字稿 section (subtitle replacement)
+# ---------------------------------------------------------------------------
+
+
+def test_storyboard_includes_dialogue_transcript(tmp_path: Path):
+    """storyboard.md must contain a ## 台词逐字稿 section with every
+    dialogue/narration line, so the producer has a single source of
+    truth for subtitles (Seedance bakes them into the video, so there
+    is no separate subtitles/ directory).
+    """
+    from videoclaw.drama.models import DramaScene, DramaSeries, Episode
+
+    series = DramaSeries(
+        series_id="transcript_test",
+        title="Transcript Test",
+        genre="drama",
+        synopsis="test",
+    )
+    scenes = [
+        DramaScene(
+            scene_id="ep01_s01",
+            description="Ivy enters the ballroom",
+            visual_prompt="A woman enters.",
+            speaking_character="Ivy",
+            dialogue="I know what you did.",
+            duration_seconds=4.0,
+        ),
+        DramaScene(
+            scene_id="ep01_s02",
+            description="Narrator introduces the setting",
+            visual_prompt="Wide shot of mansion.",
+            narration="One month earlier, everything was different.",
+            narration_type="voiceover",
+            duration_seconds=5.0,
+        ),
+        DramaScene(
+            scene_id="ep01_s03",
+            description="Silent close-up of a glass",
+            visual_prompt="A glass tips over.",
+            duration_seconds=2.0,
+        ),  # no dialogue, no narration — should be skipped
+    ]
+    episode = Episode(
+        episode_id="ep1",
+        number=1,
+        title="Pilot",
+        synopsis="test",
+        opening_hook="",
+        scenes=scenes,
+    )
+    series.episodes.append(episode)
+
+    review_dir = tmp_path / "review" / "ep01"
+    sb_path = generate_storyboard_md(series, episode, review_dir=review_dir)
+
+    content = sb_path.read_text()
+
+    # Section header must be present
+    assert "## 台词逐字稿" in content
+
+    # Every line with dialogue or narration appears verbatim
+    assert "I know what you did." in content
+    assert "One month earlier, everything was different." in content
+
+    # Speaker / narration type labeling
+    assert "Ivy" in content  # speaker label
+    # Narration should be marked as voiceover ("旁白") in the transcript
+    # (not the earlier scene-detail block)
+    transcript_start = content.index("## 台词逐字稿")
+    transcript_section = content[transcript_start:]
+    assert "旁白" in transcript_section
+
+    # Scene 3 has no dialogue/narration → its description must NOT appear
+    # inside the transcript section (it still appears earlier in scene details)
+    assert "Silent close-up of a glass" not in transcript_section
+
+
+# ---------------------------------------------------------------------------
+# _REVIEW.txt — Sources section (symlink target transparency)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_review_txt_has_sources_section(tmp_path: Path):
+    """_REVIEW.txt must include a === Sources === section that lists,
+    for each non-empty subdirectory, the parent directory that the first
+    symlink points at.  This lets auditors see the source-of-truth path
+    (usually ``projects/<uuid>/shots/``) without running ``ls -la``.
+    """
+    from videoclaw.drama.models import (
+        Character,
+        DramaManager,
+        DramaScene,
+        DramaSeries,
+        Episode,
+    )
+
+    # Set up a fake character turnaround file outside the review dir
+    src_dir = tmp_path / "src_storage" / "characters"
+    src_dir.mkdir(parents=True)
+    turnaround = src_dir / "hero_turnaround.png"
+    turnaround.write_bytes(b"fake_png")
+
+    series = DramaSeries(
+        series_id="sources_test",
+        title="Sources Test",
+        genre="test",
+        synopsis="test",
+    )
+    series.characters.append(
+        Character(
+            name="Hero",
+            description="protagonist",
+            reference_image=str(turnaround),
+        )
+    )
+    scene = DramaScene(
+        scene_id="ep01_s01",
+        description="Opening",
+        visual_prompt="test",
+    )
+    episode = Episode(
+        episode_id="ep1",
+        number=1,
+        title="Pilot",
+        synopsis="test",
+        opening_hook="",
+        scenes=[scene],
+    )
+    series.episodes.append(episode)
+
+    drama_mgr = DramaManager(base_dir=tmp_path)
+    drama_mgr.save(series)
+
+    ckpt_mgr = CheckpointManager(base_dir=tmp_path)
+    ctrl = CheckpointController(
+        series=series,
+        episode=episode,
+        manager=ckpt_mgr,
+        drama_manager=drama_mgr,
+        breakpoints=[],
+        interactive=False,
+        deliverables_dir=tmp_path,
+    )
+
+    await ctrl.checkpoint(CheckpointStage.AFTER_DESIGN, cost_usd=0.1)
+
+    review_dir = tmp_path / "sources_test" / "ep01_pilot"
+    content = (review_dir / "_REVIEW.txt").read_text()
+
+    # Header present
+    assert "=== Sources ===" in content
+
+    # Extract the sources block
+    sources_start = content.index("=== Sources ===")
+    # Sources section runs until the next === header or EOF
+    next_header = content.find("===", sources_start + len("=== Sources ==="))
+    sources_block = (
+        content[sources_start:next_header] if next_header != -1
+        else content[sources_start:]
+    )
+
+    # The populated subdir (characters/) must list the true source parent
+    assert "characters/" in sources_block
+    assert str(src_dir) in sources_block or "src_storage/characters" in sources_block
+
+    # Empty subdirs either display (empty) or are absent from the block
+    # (implementation choice — either is acceptable as long as they do not
+    # display a misleading source). Use a loose check:
+    for subdir in ("videos", "audio", "audit", "final", "scenes"):
+        # If the subdir is listed at all, it must be marked empty
+        lines = [
+            line for line in sources_block.splitlines()
+            if line.strip().startswith(subdir + "/")
+        ]
+        for line in lines:
+            assert "(empty)" in line, (
+                f"Empty subdir {subdir}/ should be marked (empty), got: {line!r}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# build_review_dir — shared entry point for checkpoint + export
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_build_review_dir_populates_all_subdirs(tmp_path: Path):
+    """build_review_dir is a stage-agnostic builder that populates every
+    subdirectory the pipeline can produce, in a single call.
+
+    It is the public entry point shared by CheckpointController and
+    ``claw drama export`` so both systems produce the identical layout.
+    """
+    from videoclaw.drama.checkpoint import build_review_dir
+    from videoclaw.drama.models import (
+        Character,
+        ConsistencyManifest,
+        DramaManager,
+        DramaScene,
+        DramaSeries,
+        Episode,
+    )
+
+    # Character turnaround
+    turnaround = tmp_path / "hero.png"
+    turnaround.write_bytes(b"png")
+
+    # Location reference
+    loc_ref = tmp_path / "pool.png"
+    loc_ref.write_bytes(b"loc")
+
+    # Video file on disk (as if written by the executor)
+    project_id = "build_proj_001"
+    shots_dir = tmp_path / project_id / "shots"
+    shots_dir.mkdir(parents=True)
+    video_file = shots_dir / "ep01_s01_abcd1234.mp4"
+    video_file.write_bytes(b"mp4")
+
+    series = DramaSeries(
+        series_id="build_test",
+        title="Build Test",
+        genre="test",
+        synopsis="test",
+    )
+    series.characters.append(
+        Character(
+            name="Hero",
+            description="p",
+            reference_image=str(turnaround),
+        )
+    )
+    series.consistency_manifest = ConsistencyManifest(
+        scene_references={"Pool deck": str(loc_ref)},
+    )
+    scene = DramaScene(
+        scene_id="ep01_s01",
+        description="Arrival",
+        visual_prompt="A shot.",
+    )
+    episode = Episode(
+        episode_id="ep1",
+        number=1,
+        title="Pilot",
+        synopsis="test",
+        opening_hook="",
+        scenes=[scene],
+        project_id=project_id,
+    )
+    series.episodes.append(episode)
+
+    drama_mgr = DramaManager(base_dir=tmp_path)
+    drama_mgr.save(series)
+
+    # Single call — must populate characters/, scenes/, videos/
+    review_dir = build_review_dir(
+        series,
+        episode,
+        deliverables_dir=tmp_path / "deliverables",
+        projects_dir=tmp_path,
+    )
+
+    assert review_dir == tmp_path / "deliverables" / "build_test" / "ep01_pilot"
+    assert (review_dir / "storyboard.md").exists()
+    assert (review_dir / "characters" / "hero_turnaround.png").is_symlink()
+    assert (review_dir / "scenes" / "pool_deck.png").is_symlink()
+    videos = sorted((review_dir / "videos").iterdir())
+    assert len(videos) == 1
+    assert "s01_arrival" in videos[0].name
+
+    # No empty placeholders
+    for empty in ("audio", "audit", "final"):
+        assert not (review_dir / empty).exists()
