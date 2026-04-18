@@ -77,6 +77,16 @@ def _scene_slug(index: int, description: str) -> str:
     return f"s{index + 1:02d}_{slug}"
 
 
+def _normalize_char_name(name: str) -> str:
+    """Normalize a character name to a case-insensitive filename slug.
+
+    Equivalent to ``_slugify`` for typical names; additionally strips
+    leading underscores so names with leading punctuation
+    (``"!Ivy"`` → ``"ivy"``) match cleanly across episode boundaries.
+    """
+    return _slugify(name).strip("_")
+
+
 def review_dir_for_episode(
     series: DramaSeries,
     episode: Episode,

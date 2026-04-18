@@ -1596,3 +1596,50 @@ async def test_build_review_dir_populates_all_subdirs(tmp_path: Path):
     # No empty placeholders
     for empty in ("audio", "audit", "final"):
         assert not (review_dir / empty).exists()
+
+
+# ---------------------------------------------------------------------------
+# _normalize_char_name — case-insensitive char-name → filename slug
+# (Series-View plan Task 1)
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeCharName:
+    def test_lowercase_collapses_to_slug(self):
+        from videoclaw.drama.checkpoint import _normalize_char_name
+        assert _normalize_char_name("Ivy") == "ivy"
+        assert _normalize_char_name("IVY") == "ivy"
+
+    def test_spaces_become_underscores(self):
+        from videoclaw.drama.checkpoint import _normalize_char_name
+        assert _normalize_char_name("Ivy Chen") == "ivy_chen"
+
+    def test_strips_trailing_underscore(self):
+        from videoclaw.drama.checkpoint import _normalize_char_name
+        assert _normalize_char_name("Ivy ") == "ivy"
+
+    def test_equivalence_with_slugify_for_clean_names(self):
+        # Audit A2: prove byte-equivalence to _slugify for names without
+        # leading punctuation. Documents that the migration in Task 5/10 is
+        # safe for typical inputs.
+        from videoclaw.drama.checkpoint import _normalize_char_name, _slugify
+        for name in ["Ivy", "Ivy Chen", "Bob the Builder", "Marcus_Aurelius"]:
+            assert _normalize_char_name(name) == _slugify(name), (
+                f"divergence on {name!r}: "
+                f"normalize={_normalize_char_name(name)!r} slugify={_slugify(name)!r}"
+            )
+
+    def test_diverges_from_slugify_on_leading_punct(self):
+        # Audit A2: document the strip('_') divergence — only meaningful
+        # for names with leading non-alnum chars (rare in practice but
+        # explicit to guard future regressions).
+        from videoclaw.drama.checkpoint import _normalize_char_name, _slugify
+        # _slugify lower-cases + strips non-word chars + rstrips '_'; so
+        # leading punctuation becomes a leading '_'. _normalize strips both.
+        slug = _slugify("!Ivy")
+        norm = _normalize_char_name("!Ivy")
+        # if _slugify produces a leading underscore, _normalize must remove it
+        if slug.startswith("_"):
+            assert norm == slug.lstrip("_")
+        else:
+            assert norm == slug
