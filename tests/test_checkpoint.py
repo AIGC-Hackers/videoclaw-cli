@@ -1975,3 +1975,170 @@ class TestSeriesRootFor:
         ep_dir = review_dir_for_episode(series, ep, tmp_path)
         # ep_dir.parent must equal _series_root_for(series, tmp_path)
         assert ep_dir.parent == _series_root_for(series, tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# _render_series_md + _write_series_md (Tasks 7 & 8 with A5 mtime guard)
+# ---------------------------------------------------------------------------
+
+
+class TestRenderSeriesMd:
+    def _series_with_eps(self, tmp_path):
+        from videoclaw.drama.models import (
+            DramaSeries, Episode, Character, ConsistencyManifest, DramaScene,
+        )
+        ivy_src = tmp_path / "ivy.png"
+        ivy_src.write_bytes(b"x")
+        pool_src = tmp_path / "pool.png"
+        pool_src.write_bytes(b"y")
+        series = DramaSeries(
+            title="Satan",
+            series_id="abc1234",
+            aspect_ratio="9:16",
+            model_id="seedance-2.0",
+        )
+        series.characters = [
+            Character(
+                name="Ivy",
+                description="服务员",
+                reference_image=str(ivy_src),
+                reference_image_url="https://x/ivy",
+            ),
+            Character(name="Colton", description="富豪未婚夫"),
+        ]
+        series.consistency_manifest = ConsistencyManifest(
+            scene_references={"Pool deck": str(pool_src)},
+        )
+        ep1 = Episode(
+            number=1, title="池畔对峙", synopsis="Ivy is humiliated",
+            duration_seconds=60.0, cost=4.35,
+        )
+        ep1.scenes = [DramaScene(description="Pool deck confrontation")]
+        ep2 = Episode(
+            number=2, title="逆袭", synopsis="Ivy strikes back",
+            duration_seconds=50.0, cost=3.20,
+        )
+        series.episodes = [ep1, ep2]
+        series_root = tmp_path / "deliverables" / "satan"
+        series_root.mkdir(parents=True)
+        return series, series_root
+
+    def test_includes_title(self, tmp_path):
+        from videoclaw.drama.checkpoint import _render_series_md
+        series, root = self._series_with_eps(tmp_path)
+        md = _render_series_md(series, root)
+        assert md.startswith("# Satan")
+
+    def test_metadata_table_lists_series_id(self, tmp_path):
+        from videoclaw.drama.checkpoint import _render_series_md
+        series, root = self._series_with_eps(tmp_path)
+        md = _render_series_md(series, root)
+        assert "abc1234" in md
+        assert "9:16" in md
+        assert "seedance-2.0" in md
+
+    def test_metadata_documents_missing_resolution(self, tmp_path):
+        # Audit A9: spec promises 720p in metadata; series has no resolution
+        # field — render placeholder so the omission is visible to reviewer.
+        from videoclaw.drama.checkpoint import _render_series_md
+        series, root = self._series_with_eps(tmp_path)
+        md = _render_series_md(series, root)
+        assert "未配置" in md or "720p" in md or "1080p" in md
+
+    def test_character_section_inlines_image(self, tmp_path):
+        from videoclaw.drama.checkpoint import _render_series_md
+        series, root = self._series_with_eps(tmp_path)
+        md = _render_series_md(series, root)
+        assert "## 角色" in md
+        assert "![](characters/ivy_turnaround.png)" in md
+        assert "Ivy" in md
+        assert "Colton" in md
+
+    def test_scene_section_inlines_image(self, tmp_path):
+        from videoclaw.drama.checkpoint import _render_series_md
+        series, root = self._series_with_eps(tmp_path)
+        md = _render_series_md(series, root)
+        assert "## 场景" in md
+        assert "![](scenes/pool_deck.png)" in md
+
+    def test_scene_section_sorts_by_dict_key(self, tmp_path):
+        # Audit A9 ordering: scenes table must sort by scene_references key
+        from videoclaw.drama.checkpoint import _render_series_md
+        from videoclaw.drama.models import DramaSeries, ConsistencyManifest
+        series = DramaSeries(title="t", series_id="x")
+        series.consistency_manifest = ConsistencyManifest(
+            scene_references={"Zebra room": "/z.png", "Alpha room": "/a.png"},
+        )
+        md = _render_series_md(series, tmp_path)
+        assert md.index("Alpha room") < md.index("Zebra room")
+
+    def test_episode_table_lists_each_ep(self, tmp_path):
+        from videoclaw.drama.checkpoint import _render_series_md
+        series, root = self._series_with_eps(tmp_path)
+        md = _render_series_md(series, root)
+        assert "## 集列表" in md
+        assert "池畔对峙" in md
+        assert "逆袭" in md
+        assert "$4.35" in md
+        assert "$3.20" in md
+
+    def test_logline_section_present(self, tmp_path):
+        from videoclaw.drama.checkpoint import _render_series_md
+        series, root = self._series_with_eps(tmp_path)
+        md = _render_series_md(series, root)
+        assert "## Logline" in md
+        assert "Ivy is humiliated" in md
+        assert "Ivy strikes back" in md
+
+    def test_empty_episodes_handled(self, tmp_path):
+        from videoclaw.drama.checkpoint import _render_series_md
+        from videoclaw.drama.models import DramaSeries
+        series = DramaSeries(title="empty", series_id="x")
+        md = _render_series_md(series, tmp_path)
+        assert "暂无 episode" in md
+
+
+class TestWriteSeriesMd:
+    def _make(self, tmp_path):
+        from videoclaw.drama.models import DramaSeries, Episode
+        series = DramaSeries(title="t", series_id="x")
+        series.episodes = [Episode(number=1, title="P", synopsis="hello")]
+        series_root = tmp_path / "deliverables" / "t"
+        series_root.mkdir(parents=True)
+        return series, series_root
+
+    def test_creates_file(self, tmp_path):
+        from videoclaw.drama.checkpoint import _write_series_md
+        series, root = self._make(tmp_path)
+        path = _write_series_md(series, root)
+        assert path == root / "_SERIES.md"
+        assert path.exists()
+        assert "# t" in path.read_text()
+
+    def test_unchanged_content_preserves_mtime(self, tmp_path):
+        # Audit A5: timestamps in metadata must NOT cause every checkpoint
+        # to rewrite the file. Two consecutive calls with no underlying
+        # series change must leave mtime untouched.
+        import os
+        import time
+        from videoclaw.drama.checkpoint import _write_series_md
+        series, root = self._make(tmp_path)
+        path = _write_series_md(series, root)
+        first_mtime = os.stat(path).st_mtime_ns
+        time.sleep(0.05)  # ensure mtime resolution would notice a rewrite
+        _write_series_md(series, root)
+        assert os.stat(path).st_mtime_ns == first_mtime, (
+            "no-op rewrite must not bump mtime when content (sans timestamp) "
+            "is unchanged — A5 invariant"
+        )
+
+    def test_changed_content_rewrites(self, tmp_path):
+        from videoclaw.drama.checkpoint import _write_series_md
+        from videoclaw.drama.models import Episode
+        series, root = self._make(tmp_path)
+        _write_series_md(series, root)
+        # Change episode count → MD content must change → file must rewrite
+        series.episodes.append(Episode(number=2, title="E2", synopsis="more"))
+        _write_series_md(series, root)
+        content = (root / "_SERIES.md").read_text()
+        assert "E2" in content

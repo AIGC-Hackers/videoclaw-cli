@@ -385,6 +385,167 @@ def _update_series_scenes_dir(series: DramaSeries, scenes_dir: Path) -> None:
         _safe_symlink(src, dst)
 
 
+_SERIES_MD_TIMESTAMP_LINE_PREFIX = "| 最后更新 |"
+
+
+def _render_series_md(series: DramaSeries, series_root: Path) -> str:
+    """Render the ``_SERIES.md`` content from in-memory series state.
+
+    Pure function — deterministic for the same input. ``series_root`` is
+    used only to derive each episode's filesystem state for status
+    inference. Inline image paths are relative to ``_SERIES.md`` itself,
+    so the file is portable across drama_slug renames.
+
+    The "最后更新" line carries a wall-clock timestamp; callers that want
+    the no-write-if-unchanged guarantee must strip this line before
+    comparison (see :func:`_write_series_md`, Audit A5).
+    """
+    from datetime import datetime, timezone
+
+    deliverables_dir = series_root.parent
+    lines: list[str] = []
+    lines.append(f"# {series.title}\n")
+
+    # 1. Metadata
+    audited = 0
+    generating = 0
+    for ep in series.episodes:
+        ep_dir = review_dir_for_episode(series, ep, deliverables_dir)
+        st = _episode_status(ep, ep_dir)
+        if st in ("audited", "composed", "completed"):
+            audited += 1
+        elif st == "generating":
+            generating += 1
+    pending = len(series.episodes) - audited - generating
+    total_dur = sum(ep.duration_seconds for ep in series.episodes)
+    total_cost = sum(ep.cost for ep in series.episodes)
+
+    lines.append("## 元数据\n")
+    lines.append("| 字段 | 值 |")
+    lines.append("|---|---|")
+    lines.append(f"| Series ID | {series.series_id} |")
+    lines.append(
+        f"| 集数 | {len(series.episodes)} "
+        f"(audited {audited} / generating {generating} / pending {pending}) |"
+    )
+    lines.append(f"| 累计成本 | ${total_cost:.2f} |")
+    lines.append(f"| 累计预估时长 | {total_dur:.0f}s |")
+    # Audit A9: spec promised 720p; series has no resolution field — flag it
+    lines.append(
+        f"| 视频规格 | {series.model_id} · {series.aspect_ratio} · (分辨率: 未配置) |"
+    )
+    lines.append(
+        f"{_SERIES_MD_TIMESTAMP_LINE_PREFIX} {datetime.now(timezone.utc).isoformat()} |"
+    )
+    lines.append("")
+
+    # 2. Characters
+    if series.characters:
+        lines.append(f"## 角色 ({len(series.characters)})\n")
+        lines.append("| 预览 | 名字 | 身份 | URL |")
+        lines.append("|---|---|---|---|")
+        for char in series.characters:
+            slug = _normalize_char_name(char.name)
+            preview = ""
+            if char.reference_image:
+                ext = Path(char.reference_image).suffix or ".png"
+                preview = f"![](characters/{slug}_turnaround{ext})"
+            url_cell = "—"
+            if getattr(char, "reference_image_url", None):
+                url_cell = f"[link](characters/{slug}_url.txt)"
+            lines.append(
+                f"| {preview} | {char.name} | {char.description or '—'} | {url_cell} |"
+            )
+        lines.append("")
+
+    # 3. Scenes
+    manifest = getattr(series, "consistency_manifest", None)
+    refs = getattr(manifest, "scene_references", None) or {}
+    if refs:
+        appearance: dict[str, list[int]] = {}
+        ref_keys = set(refs.keys())
+        for ep in series.episodes:
+            for loc in _episode_locations(ep, ref_keys):
+                appearance.setdefault(loc, []).append(ep.number)
+
+        lines.append(f"## 场景 ({len(refs)})\n")
+        lines.append("| 预览 | location | 出场集 |")
+        lines.append("|---|---|---|")
+        for loc_name in sorted(refs):
+            ref_path = refs[loc_name]
+            ext = Path(ref_path).suffix or ".png"
+            slug = _slugify(loc_name, max_len=40) or "location"
+            preview = f"![](scenes/{slug}{ext})"
+            eps = appearance.get(loc_name, [])
+            ep_cell = ", ".join(f"EP{n:02d}" for n in sorted(eps)) or "—"
+            lines.append(f"| {preview} | {loc_name} | {ep_cell} |")
+        lines.append("")
+
+    # 4. Episodes
+    lines.append("## 集列表\n")
+    if not series.episodes:
+        lines.append("> 暂无 episode\n")
+    else:
+        lines.append("| # | 标题 | 状态 | 时长 | 成本 | 入口 |")
+        lines.append("|---|---|---|---|---|---|")
+        status_emoji = {
+            "audited": "✅", "composed": "✅", "completed": "✅",
+            "generating": "⏳", "pending": "⏸", "failed": "❌",
+        }
+        for ep in sorted(series.episodes, key=lambda e: e.number):
+            ep_dir = review_dir_for_episode(series, ep, deliverables_dir)
+            ep_dirname = ep_dir.name
+            status = _episode_status(ep, ep_dir)
+            emoji = status_emoji.get(status, "•")
+            link = f"[{ep_dirname}/]({ep_dirname}/)"
+            lines.append(
+                f"| {ep.number:02d} | {ep.title or '—'} | {emoji} {status} "
+                f"| {ep.duration_seconds:.0f}s | ${ep.cost:.2f} | {link} |"
+            )
+        lines.append("")
+
+    # 5. Logline
+    if series.episodes:
+        lines.append("## Logline\n")
+        for ep in sorted(series.episodes, key=lambda e: e.number):
+            line = ep.synopsis or ep.title or "(无 synopsis)"
+            title_part = (" " + ep.title) if ep.title else ""
+            lines.append(f"- **EP{ep.number:02d}{title_part}** — {line}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def _strip_timestamp(md: str) -> str:
+    """Drop the volatile timestamp line for content-equality comparison."""
+    return "\n".join(
+        ln for ln in md.splitlines()
+        if not ln.startswith(_SERIES_MD_TIMESTAMP_LINE_PREFIX)
+    )
+
+
+def _write_series_md(series: DramaSeries, series_root: Path) -> Path:
+    """Write ``_SERIES.md`` if (and only if) the rendered content changed.
+
+    Audit A5: the rendered MD includes a wall-clock timestamp that would
+    otherwise force a rewrite on every checkpoint. Compare the
+    timestamp-stripped form to the existing file's timestamp-stripped
+    form; only write if they differ. This preserves mtime when the
+    series state hasn't actually changed.
+    """
+    series_root.mkdir(parents=True, exist_ok=True)
+    path = series_root / "_SERIES.md"
+    new_md = _render_series_md(series, series_root)
+
+    if path.exists():
+        old_md = path.read_text(encoding="utf-8")
+        if _strip_timestamp(old_md) == _strip_timestamp(new_md):
+            return path
+
+    path.write_text(new_md, encoding="utf-8")
+    return path
+
+
 def _update_scenes_dir(series: DramaSeries, scenes_dir: Path) -> None:
     """Symlink scene/location reference images (景别图 / 场景参考图).
 
