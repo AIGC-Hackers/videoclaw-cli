@@ -1699,3 +1699,80 @@ class TestEpisodeLocations:
         ])
         keys = {"Pool deck", "Mansion lobby", "Server room"}
         assert _episode_locations(ep, keys) == {"Pool deck", "Mansion lobby"}
+
+
+# ---------------------------------------------------------------------------
+# _episode_status — composed > audited > generating > pending
+# (Series-View plan Task 3, with A7 enum fallback)
+# ---------------------------------------------------------------------------
+
+
+class TestEpisodeStatus:
+    def test_pending_when_no_files(self, tmp_path):
+        from videoclaw.drama.checkpoint import _episode_status
+        from videoclaw.drama.models import Episode
+        ep = Episode(number=1)
+        assert _episode_status(ep, tmp_path / "ep01") == "pending"
+
+    def test_generating_when_videos_but_no_audit(self, tmp_path):
+        from videoclaw.drama.checkpoint import _episode_status
+        from videoclaw.drama.models import Episode
+        ep_dir = tmp_path / "ep01"
+        (ep_dir / "videos").mkdir(parents=True)
+        (ep_dir / "videos" / "s01.mp4").write_bytes(b"x")
+        ep = Episode(number=1)
+        assert _episode_status(ep, ep_dir) == "generating"
+
+    def test_audited_when_videos_and_audit(self, tmp_path):
+        from videoclaw.drama.checkpoint import _episode_status
+        from videoclaw.drama.models import Episode
+        ep_dir = tmp_path / "ep01"
+        (ep_dir / "videos").mkdir(parents=True)
+        (ep_dir / "videos" / "s01.mp4").write_bytes(b"x")
+        (ep_dir / "audit").mkdir(parents=True)
+        (ep_dir / "audit" / "round_1.json").write_text("{}")
+        ep = Episode(number=1)
+        assert _episode_status(ep, ep_dir) == "audited"
+
+    def test_composed_when_final_present(self, tmp_path):
+        from videoclaw.drama.checkpoint import _episode_status
+        from videoclaw.drama.models import Episode
+        ep_dir = tmp_path / "ep01"
+        (ep_dir / "final").mkdir(parents=True)
+        (ep_dir / "final" / "ep01_final.mp4").write_bytes(b"x")
+        ep = Episode(number=1)
+        assert _episode_status(ep, ep_dir) == "composed"
+
+    def test_enum_completed_overrides_empty_disk(self, tmp_path):
+        # Audit A7: when episode.status == COMPLETED, return "completed" even
+        # if disk is empty (e.g., fresh checkpoint dir hasn't been built yet).
+        from videoclaw.drama.checkpoint import _episode_status
+        from videoclaw.drama.models import Episode, EpisodeStatus
+        ep = Episode(number=1)
+        ep.status = EpisodeStatus.COMPLETED
+        # ep_dir doesn't even exist on disk
+        assert _episode_status(ep, tmp_path / "missing_ep") == "completed"
+
+    def test_enum_failed_overrides_disk(self, tmp_path):
+        # FAILED is a terminal state; disk evidence shouldn't override.
+        from videoclaw.drama.checkpoint import _episode_status
+        from videoclaw.drama.models import Episode, EpisodeStatus
+        ep_dir = tmp_path / "ep01"
+        (ep_dir / "videos").mkdir(parents=True)
+        (ep_dir / "videos" / "s01.mp4").write_bytes(b"x")
+        ep = Episode(number=1)
+        ep.status = EpisodeStatus.FAILED
+        assert _episode_status(ep, ep_dir) == "failed"
+
+    def test_enum_generating_yields_to_disk_detail(self, tmp_path):
+        # GENERATING is an in-progress state; let disk refine to the
+        # specific stage if there's more evidence.
+        from videoclaw.drama.checkpoint import _episode_status
+        from videoclaw.drama.models import Episode, EpisodeStatus
+        ep_dir = tmp_path / "ep01"
+        (ep_dir / "final").mkdir(parents=True)
+        (ep_dir / "final" / "ep01.mp4").write_bytes(b"x")
+        ep = Episode(number=1)
+        ep.status = EpisodeStatus.GENERATING
+        # disk shows composed; we trust disk for in-progress refinement
+        assert _episode_status(ep, ep_dir) == "composed"

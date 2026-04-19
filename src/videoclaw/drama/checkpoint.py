@@ -104,6 +104,38 @@ def _episode_locations(episode: Episode, scene_ref_keys: set[str]) -> set[str]:
     return matched
 
 
+def _episode_status(episode: Episode, ep_dir: Path) -> str:
+    """Derive a human-friendly episode status.
+
+    Terminal enum states (``COMPLETED`` / ``FAILED``) are authoritative
+    and override disk evidence (Audit A7) — useful when an episode is
+    marked complete but its review dir hasn't been built yet.
+
+    For non-terminal enum states, derive from filesystem evidence with
+    most-complete-wins precedence:
+        composed > audited > generating > pending
+    """
+    from videoclaw.drama.models import EpisodeStatus
+
+    if episode.status == EpisodeStatus.COMPLETED:
+        return "completed"
+    if episode.status == EpisodeStatus.FAILED:
+        return "failed"
+
+    final_dir = ep_dir / "final"
+    if final_dir.is_dir() and any(final_dir.iterdir()):
+        return "composed"
+    audit_dir = ep_dir / "audit"
+    videos_dir = ep_dir / "videos"
+    has_videos = videos_dir.is_dir() and any(videos_dir.iterdir())
+    has_audit = audit_dir.is_dir() and any(audit_dir.iterdir())
+    if has_videos and has_audit:
+        return "audited"
+    if has_videos:
+        return "generating"
+    return "pending"
+
+
 def review_dir_for_episode(
     series: DramaSeries,
     episode: Episode,
