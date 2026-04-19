@@ -87,6 +87,23 @@ def _normalize_char_name(name: str) -> str:
     return _slugify(name).strip("_")
 
 
+def _episode_locations(episode: Episode, scene_ref_keys: set[str]) -> set[str]:
+    """Extract location keys actually referenced in an episode's scenes.
+
+    DramaScene has no location field — match scene.description against
+    known scene_reference keys via case-insensitive whole-word regex.
+    Whole-word matching avoids false positives like ``"carpool"`` →
+    ``"pool"`` (Audit A9).
+    """
+    descriptions = " ".join(s.description for s in episode.scenes)
+    matched: set[str] = set()
+    for key in scene_ref_keys:
+        pattern = r"\b" + re.escape(key) + r"\b"
+        if re.search(pattern, descriptions, re.IGNORECASE):
+            matched.add(key)
+    return matched
+
+
 def review_dir_for_episode(
     series: DramaSeries,
     episode: Episode,

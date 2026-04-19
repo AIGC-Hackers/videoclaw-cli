@@ -1643,3 +1643,59 @@ class TestNormalizeCharName:
             assert norm == slug.lstrip("_")
         else:
             assert norm == slug
+
+
+# ---------------------------------------------------------------------------
+# _episode_locations — extract per-episode location keys from scene descriptions
+# (Series-View plan Task 2, with A9 whole-word upgrade)
+# ---------------------------------------------------------------------------
+
+
+class TestEpisodeLocations:
+    def _make_ep(self, descriptions: list[str]):
+        from videoclaw.drama.models import Episode, DramaScene
+        ep = Episode(number=1)
+        ep.scenes = [DramaScene(description=d) for d in descriptions]
+        return ep
+
+    def test_extracts_locations_via_whole_word_match(self):
+        from videoclaw.drama.checkpoint import _episode_locations
+        ep = self._make_ep([
+            "Ivy stands by the Pool deck at sunset",
+            "Colton enters the Server room",
+        ])
+        scene_ref_keys = {"Pool deck", "Server room", "Mansion lobby"}
+        assert _episode_locations(ep, scene_ref_keys) == {"Pool deck", "Server room"}
+
+    def test_returns_empty_when_no_match(self):
+        from videoclaw.drama.checkpoint import _episode_locations
+        ep = self._make_ep(["random scene unrelated to known locations"])
+        assert _episode_locations(ep, {"Pool deck"}) == set()
+
+    def test_case_insensitive(self):
+        from videoclaw.drama.checkpoint import _episode_locations
+        ep = self._make_ep(["walking by the pool deck area"])
+        assert _episode_locations(ep, {"Pool deck"}) == {"Pool deck"}
+
+    def test_empty_keys_returns_empty(self):
+        from videoclaw.drama.checkpoint import _episode_locations
+        ep = self._make_ep(["any description"])
+        assert _episode_locations(ep, set()) == set()
+
+    def test_whole_word_avoids_false_match(self):
+        # Audit A9 regression: naive substring would match "carpool" → "pool";
+        # whole-word regex must reject. Likewise "decking" must not match "deck".
+        from videoclaw.drama.checkpoint import _episode_locations
+        ep = self._make_ep(["the carpool deckhand walked away"])
+        # "Pool deck" should NOT match "carpool deckhand" under whole-word rule
+        assert _episode_locations(ep, {"Pool deck"}) == set()
+
+    def test_multi_scene_aggregation(self):
+        from videoclaw.drama.checkpoint import _episode_locations
+        ep = self._make_ep([
+            "Scene one in the Pool deck",
+            "Scene two in the Mansion lobby",
+            "Scene three back in the Pool deck",
+        ])
+        keys = {"Pool deck", "Mansion lobby", "Server room"}
+        assert _episode_locations(ep, keys) == {"Pool deck", "Mansion lobby"}
