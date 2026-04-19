@@ -1776,3 +1776,86 @@ class TestEpisodeStatus:
         ep.status = EpisodeStatus.GENERATING
         # disk shows composed; we trust disk for in-progress refinement
         assert _episode_status(ep, ep_dir) == "composed"
+
+
+# ---------------------------------------------------------------------------
+# _relative_symlink_to_series_root — episode dirs symlink back to series root
+# (Series-View plan Task 4, with A4 user-file preservation)
+# ---------------------------------------------------------------------------
+
+
+class TestRelativeSymlinkToSeriesRoot:
+    def test_creates_relative_symlink(self, tmp_path):
+        from videoclaw.drama.checkpoint import _relative_symlink_to_series_root
+        series_root = tmp_path / "series"
+        chars = series_root / "characters"
+        chars.mkdir(parents=True)
+        src = chars / "ivy.png"
+        src.write_bytes(b"x")
+        dst = series_root / "ep01" / "characters" / "ivy.png"
+        _relative_symlink_to_series_root(src, dst)
+        import os
+        assert dst.is_symlink()
+        assert os.readlink(dst) == "../../characters/ivy.png"
+        assert dst.resolve() == src.resolve()
+
+    def test_replaces_existing_symlink(self, tmp_path):
+        from videoclaw.drama.checkpoint import _relative_symlink_to_series_root
+        series_root = tmp_path / "s"
+        (series_root / "characters").mkdir(parents=True)
+        src = series_root / "characters" / "ivy.png"
+        src.write_bytes(b"x")
+        dst = series_root / "ep01" / "characters" / "ivy.png"
+        dst.parent.mkdir(parents=True)
+        # Stale flat symlink (legacy migration case)
+        old_target = tmp_path / "old_target.png"
+        old_target.write_bytes(b"old")
+        dst.symlink_to(old_target)
+        _relative_symlink_to_series_root(src, dst)
+        import os
+        assert os.readlink(dst) == "../../characters/ivy.png"
+
+    def test_preserves_user_placed_real_file(self, tmp_path, caplog):
+        # Audit A4: a real file at dst means the human edited it during
+        # an audit pause. Must NEVER silently delete; rename to .user.bak
+        # and log a warning so the user can recover.
+        import logging
+        from videoclaw.drama.checkpoint import _relative_symlink_to_series_root
+
+        series_root = tmp_path / "s"
+        (series_root / "characters").mkdir(parents=True)
+        src = series_root / "characters" / "ivy.png"
+        src.write_bytes(b"new")
+
+        dst = series_root / "ep01" / "characters" / "ivy.png"
+        dst.parent.mkdir(parents=True)
+        # Simulate human placing a real file (not a symlink) at dst
+        dst.write_bytes(b"user_swap")
+
+        with caplog.at_level(logging.WARNING, logger="videoclaw.drama.checkpoint"):
+            _relative_symlink_to_series_root(src, dst)
+
+        # Original user file must survive as .user.bak
+        backup = dst.parent / "ivy.png.user.bak"
+        assert backup.exists(), "user file must be preserved as .user.bak"
+        assert backup.read_bytes() == b"user_swap"
+
+        # New symlink in place pointing at the series root file
+        assert dst.is_symlink()
+        assert dst.resolve() == src.resolve()
+
+        # Warning was logged so user can find the backup
+        assert any("user file" in r.message.lower() for r in caplog.records), (
+            "must warn about preserved user file"
+        )
+
+    def test_creates_parent_dir_if_missing(self, tmp_path):
+        from videoclaw.drama.checkpoint import _relative_symlink_to_series_root
+        series_root = tmp_path / "s"
+        (series_root / "characters").mkdir(parents=True)
+        src = series_root / "characters" / "ivy.png"
+        src.write_bytes(b"x")
+        # dst's parent doesn't exist yet
+        dst = series_root / "ep_new" / "characters" / "ivy.png"
+        _relative_symlink_to_series_root(src, dst)
+        assert dst.is_symlink()

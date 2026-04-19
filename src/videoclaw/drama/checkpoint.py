@@ -104,6 +104,36 @@ def _episode_locations(episode: Episode, scene_ref_keys: set[str]) -> set[str]:
     return matched
 
 
+def _relative_symlink_to_series_root(
+    src_in_series_root: Path,
+    dst_in_episode_dir: Path,
+) -> None:
+    """Create a relative symlink ``dst → ../../<rel-path-to-src>``.
+
+    Used so episode-level filtered subsets (``characters/``, ``scenes/``)
+    point back to the series-root truth via portable relative paths.
+
+    **Audit-safety (A4):** if ``dst`` is a regular file (not a symlink),
+    a human placed it during a checkpoint pause. Preserve as
+    ``<dst>.user.bak`` and log a warning — never silently delete.
+    """
+    dst_in_episode_dir.parent.mkdir(parents=True, exist_ok=True)
+
+    if dst_in_episode_dir.is_symlink():
+        dst_in_episode_dir.unlink()
+    elif dst_in_episode_dir.exists():
+        backup = dst_in_episode_dir.with_name(dst_in_episode_dir.name + ".user.bak")
+        dst_in_episode_dir.rename(backup)
+        logger.warning(
+            "Preserved user file at %s -> %s (rebuilding symlink to series root)",
+            dst_in_episode_dir,
+            backup,
+        )
+
+    rel = os.path.relpath(src_in_series_root, dst_in_episode_dir.parent)
+    dst_in_episode_dir.symlink_to(rel)
+
+
 def _episode_status(episode: Episode, ep_dir: Path) -> str:
     """Derive a human-friendly episode status.
 
