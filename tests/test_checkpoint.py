@@ -1859,3 +1859,85 @@ class TestRelativeSymlinkToSeriesRoot:
         dst = series_root / "ep_new" / "characters" / "ivy.png"
         _relative_symlink_to_series_root(src, dst)
         assert dst.is_symlink()
+
+
+# ---------------------------------------------------------------------------
+# Series-level real-source dirs (Tasks 5 & 6)
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateSeriesCharactersDir:
+    def test_creates_symlinks_for_each_character(self, tmp_path):
+        from videoclaw.drama.checkpoint import _update_series_characters_dir
+        from videoclaw.drama.models import DramaSeries, Character
+        src_dir = tmp_path / "projects" / "characters"
+        src_dir.mkdir(parents=True)
+        ivy_src = src_dir / "ivy.png"
+        ivy_src.write_bytes(b"x")
+        colton_src = src_dir / "colton.png"
+        colton_src.write_bytes(b"y")
+        series = DramaSeries(title="t", series_id="abc")
+        series.characters = [
+            Character(name="Ivy", reference_image=str(ivy_src)),
+            Character(name="Colton", reference_image=str(colton_src)),
+        ]
+        chars_dir = tmp_path / "deliverables" / "t" / "characters"
+        _update_series_characters_dir(series, chars_dir)
+        assert (chars_dir / "ivy_turnaround.png").is_symlink()
+        assert (chars_dir / "colton_turnaround.png").is_symlink()
+
+    def test_writes_url_file_when_present(self, tmp_path):
+        from videoclaw.drama.checkpoint import _update_series_characters_dir
+        from videoclaw.drama.models import DramaSeries, Character
+        series = DramaSeries(title="t", series_id="abc")
+        series.characters = [
+            Character(name="Ivy", reference_image_url="https://x/ivy.png"),
+        ]
+        chars_dir = tmp_path / "characters"
+        _update_series_characters_dir(series, chars_dir)
+        assert (chars_dir / "ivy_url.txt").read_text() == "https://x/ivy.png"
+
+    def test_lazy_no_chars_no_dir(self, tmp_path):
+        from videoclaw.drama.checkpoint import _update_series_characters_dir
+        from videoclaw.drama.models import DramaSeries
+        series = DramaSeries(title="t", series_id="abc")
+        chars_dir = tmp_path / "characters"
+        _update_series_characters_dir(series, chars_dir)
+        assert not chars_dir.exists()
+
+
+class TestUpdateSeriesScenesDir:
+    def test_symlinks_each_scene_reference(self, tmp_path):
+        from videoclaw.drama.checkpoint import _update_series_scenes_dir
+        from videoclaw.drama.models import DramaSeries, ConsistencyManifest
+        pool_src = tmp_path / "pool.png"
+        pool_src.write_bytes(b"x")
+        room_src = tmp_path / "server.png"
+        room_src.write_bytes(b"y")
+        series = DramaSeries(title="t", series_id="abc")
+        series.consistency_manifest = ConsistencyManifest(
+            scene_references={"Pool deck": str(pool_src), "Server room": str(room_src)},
+        )
+        scenes_dir = tmp_path / "out" / "scenes"
+        _update_series_scenes_dir(series, scenes_dir)
+        assert (scenes_dir / "pool_deck.png").is_symlink()
+        assert (scenes_dir / "server_room.png").is_symlink()
+
+    def test_lazy_no_refs_no_dir(self, tmp_path):
+        from videoclaw.drama.checkpoint import _update_series_scenes_dir
+        from videoclaw.drama.models import DramaSeries
+        series = DramaSeries(title="t", series_id="abc")
+        scenes_dir = tmp_path / "scenes"
+        _update_series_scenes_dir(series, scenes_dir)
+        assert not scenes_dir.exists()
+
+    def test_skips_missing_source_files(self, tmp_path):
+        from videoclaw.drama.checkpoint import _update_series_scenes_dir
+        from videoclaw.drama.models import DramaSeries, ConsistencyManifest
+        series = DramaSeries(title="t", series_id="abc")
+        series.consistency_manifest = ConsistencyManifest(
+            scene_references={"Ghost": "/nonexistent/ghost.png"},
+        )
+        scenes_dir = tmp_path / "scenes"
+        _update_series_scenes_dir(series, scenes_dir)
+        assert not scenes_dir.exists()

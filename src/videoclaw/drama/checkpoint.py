@@ -327,6 +327,51 @@ def _update_characters_dir(series: DramaSeries, chars_dir: Path) -> None:
             url_file.write_text(url, encoding="utf-8")
 
 
+def _update_series_characters_dir(series: DramaSeries, chars_dir: Path) -> None:
+    """Series-level source-of-truth for character turnarounds + URLs.
+
+    Iterates *all* ``series.characters`` and materializes each turnaround
+    into ``chars_dir`` (the series root). Episode-level filtered subsets
+    (added by Task 10/12) symlink back here via
+    :func:`_relative_symlink_to_series_root`.
+
+    Uses :func:`_normalize_char_name` (vs ``_slugify``) for filename
+    consistency with the per-episode filter logic that joins on
+    ``Scene.characters_present``.
+    """
+    for char in series.characters:
+        if char.reference_image:
+            src = Path(char.reference_image)
+            if src.exists():
+                chars_dir.mkdir(parents=True, exist_ok=True)
+                name = f"{_normalize_char_name(char.name)}_turnaround{src.suffix}"
+                _safe_symlink(src, chars_dir / name)
+        url = getattr(char, "reference_image_url", None)
+        if url:
+            chars_dir.mkdir(parents=True, exist_ok=True)
+            url_file = chars_dir / f"{_normalize_char_name(char.name)}_url.txt"
+            url_file.write_text(url, encoding="utf-8")
+
+
+def _update_series_scenes_dir(series: DramaSeries, scenes_dir: Path) -> None:
+    """Series-level source-of-truth for scene/location reference images.
+
+    Episode-level filtered subsets (added by Task 11/12) symlink back here.
+    """
+    manifest = getattr(series, "consistency_manifest", None)
+    refs = getattr(manifest, "scene_references", None) or {}
+    for loc_name, ref_path in refs.items():
+        if not ref_path:
+            continue
+        src = Path(ref_path)
+        if not src.exists():
+            continue
+        scenes_dir.mkdir(parents=True, exist_ok=True)
+        slug = _slugify(loc_name, max_len=40) or "location"
+        dst = scenes_dir / f"{slug}{src.suffix}"
+        _safe_symlink(src, dst)
+
+
 def _update_scenes_dir(series: DramaSeries, scenes_dir: Path) -> None:
     """Symlink scene/location reference images (景别图 / 场景参考图).
 
