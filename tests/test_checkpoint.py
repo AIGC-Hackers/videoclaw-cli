@@ -1941,3 +1941,37 @@ class TestUpdateSeriesScenesDir:
         scenes_dir = tmp_path / "scenes"
         _update_series_scenes_dir(series, scenes_dir)
         assert not scenes_dir.exists()
+
+
+# ---------------------------------------------------------------------------
+# _series_root_for — single source of series_slug derivation (Task 9a per A8)
+# ---------------------------------------------------------------------------
+
+
+class TestSeriesRootFor:
+    def test_uses_slugified_title(self, tmp_path):
+        from videoclaw.drama.checkpoint import _series_root_for
+        from videoclaw.drama.models import DramaSeries
+        series = DramaSeries(
+            title="Satan in a Suit",
+            series_id="abc1234567890",
+        )
+        assert _series_root_for(series, tmp_path) == tmp_path / "satan_in_a_suit"
+
+    def test_falls_back_to_series_id_prefix_when_no_title(self, tmp_path):
+        from videoclaw.drama.checkpoint import _series_root_for
+        from videoclaw.drama.models import DramaSeries
+        series = DramaSeries(title="", series_id="abcdef1234567890")
+        assert _series_root_for(series, tmp_path) == tmp_path / "abcdef12"
+
+    def test_matches_review_dir_for_episode_series_part(self, tmp_path):
+        # Critical drift guard: this helper must produce the same series-slug
+        # path that review_dir_for_episode uses (which is the canonical
+        # series-root location). If they diverge, _SERIES.md links will 404.
+        from videoclaw.drama.checkpoint import _series_root_for, review_dir_for_episode
+        from videoclaw.drama.models import DramaSeries, Episode
+        series = DramaSeries(title="My Drama", series_id="x")
+        ep = Episode(number=1, title="Pilot")
+        ep_dir = review_dir_for_episode(series, ep, tmp_path)
+        # ep_dir.parent must equal _series_root_for(series, tmp_path)
+        assert ep_dir.parent == _series_root_for(series, tmp_path)

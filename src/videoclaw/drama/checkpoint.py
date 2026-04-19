@@ -186,13 +186,26 @@ def review_dir_for_episode(
     prevents test fixtures from leaking into the production deliverables
     directory when callers forget to pass it.
     """
-    series_slug = _slugify(series.title) or series.series_id[:8]
+    series_root = _series_root_for(series, base_dir)
     ep_num = episode.number
     ep_slug = _slugify(episode.title, max_len=20)
     ep_dir = f"ep{ep_num:02d}"
     if ep_slug:
         ep_dir += f"_{ep_slug}"
-    return base_dir / series_slug / ep_dir
+    return series_root / ep_dir
+
+
+def _series_root_for(series: DramaSeries, deliverables_dir: Path) -> Path:
+    """Return the deliverables directory for a series.
+
+    Single source of truth for the ``<deliverables_dir>/<series_slug>/``
+    path. All series-view code derives its location from this helper to
+    prevent drift between :func:`review_dir_for_episode` and the
+    series-root paths used by ``_SERIES.md`` and ep-level filtered
+    symlinks (Audit A8).
+    """
+    series_slug = _slugify(series.title) or series.series_id[:8]
+    return deliverables_dir / series_slug
 
 
 # Scale labels shared between standalone generator and controller
