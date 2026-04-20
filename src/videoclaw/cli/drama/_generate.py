@@ -1,4 +1,4 @@
-"""``claw drama preview-prompts``, ``run``, and ``regen-shot`` commands."""
+"""``claw drama preview-prompts``, ``run``, ``regen-shot``, and ``edit-shot`` commands."""
 
 from __future__ import annotations
 
@@ -664,3 +664,141 @@ async def _drama_regen_shot_async(
             border_style=status_style,
         )
     )
+
+
+# ---------------------------------------------------------------------------
+# claw drama edit-shot
+# ---------------------------------------------------------------------------
+
+@drama_app.command("edit-shot")
+def drama_edit_shot(
+    series_id: Annotated[str, typer.Argument(help="Drama series ID.")],
+    shot: Annotated[
+        str,
+        typer.Option("--shot", "-s", help="Scene ID to edit (e.g. ep01_s03)."),
+    ],
+    episode: Annotated[
+        int, typer.Option("--episode", "-e", help="Episode number.")
+    ] = 1,
+    recompose: Annotated[
+        bool,
+        typer.Option(
+            "--recompose",
+            help="Re-compose the full episode after regenerating.",
+        ),
+    ] = False,
+    no_regenerate: Annotated[
+        bool,
+        typer.Option(
+            "--no-regenerate",
+            help="Save the edited prompt without regenerating video.",
+        ),
+    ] = False,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """Edit a single shot's prompt in $EDITOR, then regenerate its video.
+
+    \b
+    One-step workflow: open the enhanced prompt in your editor, save changes,
+    and automatically regenerate the shot. Combines preview-prompts --review
+    (for a single shot) with regen-shot into a single command.
+
+    \b
+    Examples:
+        claw drama edit-shot abc123 -s ep01_s03
+        claw drama edit-shot abc123 -s ep01_s03 --recompose
+        claw drama edit-shot abc123 -s ep01_s03 --no-regenerate
+    """
+    configure_logging(verbose)
+    console = get_console()
+    out = get_output()
+    out._command = "drama.edit-shot"
+
+    from videoclaw.drama.models import DramaManager
+
+    mgr = DramaManager()
+    try:
+        series = mgr.load(series_id)
+    except FileNotFoundError:
+        console.print(f"[red]Series {series_id!r} not found.[/red]")
+        out.set_error(f"Series {series_id!r} not found.")
+        out.emit()
+        raise typer.Exit(code=1)
+
+    ep = next((e for e in series.episodes if e.number == episode), None)
+    if ep is None:
+        console.print(f"[red]Episode {episode} not found in series.[/red]")
+        out.set_error(f"Episode {episode} not found.")
+        out.emit()
+        raise typer.Exit(code=1)
+
+    available_scene_ids = [s.scene_id for s in ep.scenes]
+    target = next((s for s in ep.scenes if s.scene_id == shot), None)
+    if target is None:
+        console.print(f"[red]Shot {shot!r} not found in episode {episode}.[/red]")
+        console.print(f"[dim]Available shots: {', '.join(available_scene_ids)}[/dim]")
+        out.set_error(f"Shot {shot!r} not found. Available: {', '.join(available_scene_ids)}")
+        out.emit()
+        raise typer.Exit(code=1)
+
+    # Enhance prompts (populate effective_prompt via PromptEnhancer)
+    from videoclaw.drama.prompt_enhancer import PromptEnhancer
+
+    _available_refs: dict[str, dict[str, str]] = {
+        "characters": {},
+        "scenes": {},
+        "props": {},
+    }
+    for c in series.characters:
+        url = getattr(c, "reference_image_url", None)
+        if url:
+            _available_refs["characters"][c.name] = url
+        elif c.reference_image:
+            _available_refs["characters"][c.name] = c.reference_image
+    if series.consistency_manifest:
+        _available_refs["scenes"] = dict(series.consistency_manifest.scene_references)
+        _available_refs["props"] = dict(series.consistency_manifest.prop_references)
+
+    enhancer = PromptEnhancer()
+    enhancer.enhance_all_scenes(ep, series, available_refs=_available_refs)
+
+    # Open prompt in $EDITOR
+    from videoclaw.drama.prompt_review import PromptReviewer
+
+    reviewer = PromptReviewer(enabled=True, console=console)
+    edited = reviewer.edit_single(target)
+
+    prompt_changed = edited is not None
+    if edited is not None:
+        target.enhanced_visual_prompt = edited
+        mgr.save(series)
+
+    regenerated = False
+    if prompt_changed and not no_regenerate:
+        from videoclaw.drama.runner import DramaRunner
+
+        runner_inst = DramaRunner(drama_manager=mgr)
+        try:
+            asyncio.run(
+                runner_inst.regenerate_scene(series, ep, shot, recompose)
+            )
+            regenerated = True
+        except Exception as exc:
+            out.set_error(str(exc))
+            out.emit()
+            raise typer.Exit(code=1)
+    elif not prompt_changed:
+        console.print(
+            "[dim]Prompt unchanged — use `claw drama regen-shot` "
+            "if you want to regenerate without editing.[/dim]"
+        )
+
+    out.set_result({
+        "series_id": series_id,
+        "episode": episode,
+        "shot": shot,
+        "prompt_changed": prompt_changed,
+        "regenerated": regenerated,
+        "recompose": recompose,
+    })
+    out.emit()

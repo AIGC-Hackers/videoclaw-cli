@@ -72,7 +72,7 @@ class PromptReviewer:
             elif choice == "a":
                 confirmed.append(scene)
             elif choice == "e":
-                edited = self._edit_prompt(scene)
+                edited = self.edit_single(scene)
                 if edited is not None:
                     scene.enhanced_visual_prompt = edited
                 confirmed.append(scene)
@@ -106,7 +106,7 @@ class PromptReviewer:
             border_style="cyan",
         ))
 
-    def _edit_prompt(self, scene: DramaScene) -> str | None:
+    def edit_single(self, scene: DramaScene) -> str | None:
         """Open prompt in $EDITOR. Returns edited text or None if unchanged."""
         editor = os.environ.get("EDITOR", os.environ.get("VISUAL", "vim"))
         prompt_text = scene.effective_prompt
