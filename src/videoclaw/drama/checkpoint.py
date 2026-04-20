@@ -48,7 +48,7 @@ if TYPE_CHECKING:
     from videoclaw.core.events import EventBus
     from videoclaw.core.planner import DAG
     from videoclaw.core.state import ProjectState
-    from videoclaw.drama.models import DramaManager, DramaSeries, Episode
+    from videoclaw.drama.models import DramaManager, DramaScene, DramaSeries, Episode
 
 logger = logging.getLogger(__name__)
 
@@ -782,7 +782,7 @@ def _update_final_dir(
                 _safe_symlink(f, final_dir / f.name, keep_versions=True)
 
 
-def _write_duration_analysis(lines: list[str], scenes: list) -> None:
+def _write_duration_analysis(lines: list[str], scenes: list[DramaScene]) -> None:
     """Append duration-per-act table to *lines*."""
     total_dur = sum(s.duration_seconds for s in scenes)
     acts: dict[str, float] = {}
@@ -802,7 +802,7 @@ def _write_duration_analysis(lines: list[str], scenes: list) -> None:
     lines.append("")
 
 
-def _write_scale_distribution(lines: list[str], scenes: list) -> None:
+def _write_scale_distribution(lines: list[str], scenes: list[DramaScene]) -> None:
     """Append shot-scale histogram to *lines*."""
     counts: dict[str, int] = {}
     for s in scenes:
@@ -823,7 +823,7 @@ def _write_scale_distribution(lines: list[str], scenes: list) -> None:
     lines.append("")
 
 
-def _write_character_screentime(lines: list[str], scenes: list) -> None:
+def _write_character_screentime(lines: list[str], scenes: list[DramaScene]) -> None:
     """Append character screen-time table to *lines*."""
     char_counts: dict[str, int] = {}
     for s in scenes:
@@ -843,10 +843,10 @@ def _write_character_screentime(lines: list[str], scenes: list) -> None:
     lines.append("")
 
 
-def _write_scene_details(lines: list[str], scenes: list) -> None:
+def _write_scene_details(lines: list[str], scenes: list[DramaScene]) -> None:
     """Append per-scene storyboard breakdown grouped by ACT → scene_group."""
     from collections import OrderedDict
-    groups: dict[str, dict[str, list]] = OrderedDict()
+    groups: dict[str, dict[str, list[tuple[int, DramaScene]]]] = OrderedDict()
     for idx, s in enumerate(scenes):
         act = s.act_number or "unassigned"
         grp = s.scene_group or "—"
