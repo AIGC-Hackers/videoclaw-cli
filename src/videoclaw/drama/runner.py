@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json as _json
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -45,8 +46,14 @@ _BREAKPOINT_LOCK = asyncio.Lock()
 # ---------------------------------------------------------------------------
 
 
-class ShotBreakpointError(Exception):
-    """Raised when a user aborts at a shot breakpoint."""
+class ShotBreakpointError(BaseException):
+    """Raised when a user aborts at a shot breakpoint.
+
+    Inherits from BaseException (not Exception) so it bypasses the
+    ``except Exception`` guards in EventBus._safe_call and
+    DAGExecutor._execute_node, propagating cleanly to the outer
+    DramaRunner.run_episode boundary.
+    """
 
     def __init__(self, scene_id: str) -> None:
         self.scene_id = scene_id
@@ -857,11 +864,15 @@ class DramaRunner:
         *,
         base_dir: Path,
         shot_breakpoint: bool = False,
-    ) -> None:
+    ) -> Callable[[], None]:
         """Subscribe to TASK_COMPLETED for incremental review-dir symlinks.
 
         Called once before ``executor.run()`` so every completed video/tts
         node immediately materialises its asset in the review directory.
+
+        Returns an unsubscribe callable that the caller **must** invoke in
+        a ``finally`` block to prevent handler accumulation across repeated
+        runs (e.g. ``run_series`` with N episodes).
         """
         ckpt_mgr = CheckpointManager()
 
@@ -940,6 +951,11 @@ class DramaRunner:
 
         bus.subscribe(TASK_COMPLETED, _on_task_completed)
 
+        def _unsubscribe() -> None:
+            bus.unsubscribe(TASK_COMPLETED, _on_task_completed)
+
+        return _unsubscribe
+
     async def run_episode(
         self,
         series: DramaSeries,
@@ -988,7 +1004,7 @@ class DramaRunner:
 
         # --- Shot-level incremental review directory updates ---
         from videoclaw.config import get_config
-        self._subscribe_shot_review(
+        unsubscribe = self._subscribe_shot_review(
             event_bus, series, episode,
             base_dir=get_config().deliverables_dir,
             shot_breakpoint=shot_breakpoint,
@@ -1012,12 +1028,15 @@ class DramaRunner:
                 logger.warning("Agent mode requested but no agents discovered")
 
         try:
-            state = await executor.run()
-        except ShotBreakpointError as exc:
-            logger.info("Shot breakpoint abort: %s", exc.scene_id)
-            episode.status = EpisodeStatus.FAILED
-            await self.drama_mgr.save_async(series)
-            raise
+            try:
+                state = await executor.run()
+            except ShotBreakpointError as exc:
+                logger.info("Shot breakpoint abort: %s", exc.scene_id)
+                episode.status = EpisodeStatus.FAILED
+                await self.drama_mgr.save_async(series)
+                raise
+        finally:
+            unsubscribe()
 
         # -- Post-pipeline: alignment-based auto-regen loop --
         state = await self._alignment_regen_loop(
@@ -1270,7 +1289,19 @@ class DramaRunner:
             cost_tracker=tracker,
         )
 
-        state = await executor.run()
+        # Subscribe to TASK_COMPLETED for incremental review-dir updates (R2)
+        from videoclaw.config import get_config
+        unsubscribe = self._subscribe_shot_review(
+            event_bus, series, episode,
+            base_dir=get_config().deliverables_dir,
+            shot_breakpoint=False,
+        )
+
+        try:
+            state = await executor.run()
+        finally:
+            unsubscribe()
+
         await self.drama_mgr.save_async(series)
 
         logger.info(
