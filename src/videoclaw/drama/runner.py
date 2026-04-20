@@ -13,13 +13,17 @@ from __future__ import annotations
 import asyncio
 import json as _json
 import logging
-from typing import Any, cast
+from pathlib import Path
+from typing import Any, Literal, cast
 
-from videoclaw.core.events import event_bus
+from rich.prompt import Prompt
+
+from videoclaw.core.events import TASK_COMPLETED, EventBus, event_bus
 from videoclaw.core.executor import DAGExecutor
 from videoclaw.core.planner import DAG, TaskNode, TaskType
 from videoclaw.core.state import ProjectState, Shot, ShotStatus, StateManager
 from videoclaw.cost.tracker import CostTracker
+from videoclaw.drama.checkpoint import CheckpointManager
 from videoclaw.drama.models import (
     DramaManager,
     DramaScene,
@@ -31,6 +35,60 @@ from videoclaw.drama.models import (
 from videoclaw.drama.prompt_enhancer import PromptEnhancer
 
 logger = logging.getLogger(__name__)
+
+# Module-level lock serialising shot-breakpoint prompts across concurrent tasks
+_BREAKPOINT_LOCK = asyncio.Lock()
+
+
+# ---------------------------------------------------------------------------
+# Shot breakpoint exception + helper
+# ---------------------------------------------------------------------------
+
+
+class ShotBreakpointError(Exception):
+    """Raised when a user aborts at a shot breakpoint."""
+
+    def __init__(self, scene_id: str) -> None:
+        self.scene_id = scene_id
+        super().__init__(
+            f"Pipeline aborted at shot {scene_id!r}. "
+            f"Use `claw drama edit-shot` to edit the prompt, then "
+            f"`claw drama checkpoint-resume` to continue."
+        )
+
+
+async def _maybe_shot_breakpoint(
+    scene: DramaScene,
+    dst_path: Path,
+    *,
+    enabled: bool,
+) -> None:
+    """Optionally pause after a shot completes for human review.
+
+    When *enabled* is ``False`` this is a no-op. When ``True``, displays
+    a Rich panel and prompts the user to continue or abort.
+    """
+    if not enabled:
+        return
+    async with _BREAKPOINT_LOCK:
+        from rich.console import Console
+        from rich.panel import Panel
+
+        console = Console()
+        console.print(Panel(
+            f"Shot [bold]{scene.scene_id}[/bold] completed\n"
+            f"Review symlink: [cyan]{dst_path}[/cyan]\n"
+            f"Open in another terminal to inspect the video.",
+            title="[yellow]Shot Breakpoint[/yellow]",
+            border_style="yellow",
+        ))
+        choice = Prompt.ask(
+            "[bold][C]ontinue / [A]bort[/bold]",
+            choices=["C", "A", "c", "a"],
+            default="C",
+        )
+        if choice.lower() == "a":
+            raise ShotBreakpointError(scene.scene_id)
 
 
 # ---------------------------------------------------------------------------
@@ -791,12 +849,104 @@ class DramaRunner:
         self.budget_usd = budget_usd
         self.use_agents = use_agents
 
+    def _subscribe_shot_review(
+        self,
+        bus: EventBus,
+        series: DramaSeries,
+        episode: Episode,
+        *,
+        base_dir: Path,
+        shot_breakpoint: bool = False,
+    ) -> None:
+        """Subscribe to TASK_COMPLETED for incremental review-dir symlinks.
+
+        Called once before ``executor.run()`` so every completed video/tts
+        node immediately materialises its asset in the review directory.
+        """
+        ckpt_mgr = CheckpointManager()
+
+        async def _on_task_completed(
+            _event_type: str,
+            data: dict[str, Any],
+        ) -> None:
+            node_id: str = data.get("node_id", "")
+            result: dict[str, Any] = data.get("result") or {}
+
+            if node_id.startswith("video_"):
+                shot_id = node_id[len("video_"):]
+                scene = next(
+                    (s for s in episode.scenes if s.scene_id == shot_id),
+                    None,
+                )
+                src_str = result.get("asset_path")
+                if scene and src_str:
+                    src = Path(src_str)
+                    if src.exists():
+                        try:
+                            dst = ckpt_mgr.link_shot_asset(
+                                series, episode, scene, "video", src,
+                                base_dir=base_dir,
+                            )
+                            await _maybe_shot_breakpoint(
+                                scene, dst, enabled=shot_breakpoint,
+                            )
+                        except ShotBreakpointError:
+                            raise
+                        except Exception:
+                            logger.warning(
+                                "Failed to link video asset for %s",
+                                node_id, exc_info=True,
+                            )
+                    else:
+                        logger.warning(
+                            "Video asset path does not exist: %s", src_str,
+                        )
+                elif scene and not src_str:
+                    logger.warning(
+                        "TASK_COMPLETED for %s has no asset_path in result",
+                        node_id,
+                    )
+
+            elif node_id.startswith("tts_"):
+                scene_id = node_id[len("tts_"):]
+                scene = next(
+                    (s for s in episode.scenes if s.scene_id == scene_id),
+                    None,
+                )
+                if not scene:
+                    return
+                audio_paths: list[str | None] = result.get("audio_paths", [])
+                for ap in audio_paths:
+                    if not ap:
+                        continue
+                    src = Path(ap)
+                    if not src.exists():
+                        continue
+                    kind: Literal["tts_dialogue", "tts_narration"]
+                    if "narration" in src.name:
+                        kind = "tts_narration"
+                    else:
+                        kind = "tts_dialogue"
+                    try:
+                        ckpt_mgr.link_shot_asset(
+                            series, episode, scene, kind, src,
+                            base_dir=base_dir,
+                        )
+                    except Exception:
+                        logger.warning(
+                            "Failed to link TTS asset for %s",
+                            node_id, exc_info=True,
+                        )
+
+        bus.subscribe(TASK_COMPLETED, _on_task_completed)
+
     async def run_episode(
         self,
         series: DramaSeries,
         episode: Episode,
         *,
         max_shots: int | None = None,
+        shot_breakpoint: bool = False,
     ) -> ProjectState:
         """Execute a single episode through the full generation pipeline.
 
@@ -808,6 +958,9 @@ class DramaRunner:
         ----------
         max_shots : int | None
             Limit video/tts generation to the first *max_shots* scenes.
+        shot_breakpoint : bool
+            When ``True``, pause after each video shot completes for
+            interactive review.
         """
         logger.info("Running episode %d: %r", episode.number, episode.title)
         episode.status = EpisodeStatus.GENERATING
@@ -833,6 +986,14 @@ class DramaRunner:
             cost_tracker=tracker,
         )
 
+        # --- Shot-level incremental review directory updates ---
+        from videoclaw.config import get_config
+        self._subscribe_shot_review(
+            event_bus, series, episode,
+            base_dir=get_config().deliverables_dir,
+            shot_breakpoint=shot_breakpoint,
+        )
+
         # --- Agent mode: plug agents into DAG execution ---
         if self.use_agents:
             from videoclaw.agents.registry import AgentRegistry
@@ -850,7 +1011,13 @@ class DramaRunner:
             else:
                 logger.warning("Agent mode requested but no agents discovered")
 
-        state = await executor.run()
+        try:
+            state = await executor.run()
+        except ShotBreakpointError as exc:
+            logger.info("Shot breakpoint abort: %s", exc.scene_id)
+            episode.status = EpisodeStatus.FAILED
+            await self.drama_mgr.save_async(series)
+            raise
 
         # -- Post-pipeline: alignment-based auto-regen loop --
         state = await self._alignment_regen_loop(

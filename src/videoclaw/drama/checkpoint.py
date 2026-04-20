@@ -1289,6 +1289,54 @@ class CheckpointManager:
                 logger.info("Checkpoint deleted: %s", path)
                 return
 
+    # -- Incremental shot-level review symlink --------------------------------
+
+    def link_shot_asset(
+        self,
+        series: DramaSeries,
+        episode: Episode,
+        scene: DramaScene,
+        kind: str,
+        src_path: Path,
+        *,
+        base_dir: Path,
+    ) -> Path:
+        """Incrementally symlink a single shot asset into the review dir.
+
+        Uses the same naming convention as the stage-end full rebuild so
+        both paths produce identical file names.
+
+        *kind* is one of ``"video"``, ``"tts_dialogue"``, ``"tts_narration"``.
+
+        Returns the symlink destination path.
+
+        Examples::
+
+            mgr.link_shot_asset(series, ep, scene, "video", src, base_dir=d)
+        """
+        ep_dir = review_dir_for_episode(series, episode, base_dir=base_dir)
+
+        scene_index = next(
+            (i for i, s in enumerate(episode.scenes) if s.scene_id == scene.scene_id),
+            0,
+        )
+        slug = _scene_slug(scene_index, scene.description)
+
+        if kind == "video":
+            subdir = ep_dir / "videos"
+            dst = subdir / f"{slug}{src_path.suffix}"
+        elif kind == "tts_dialogue":
+            subdir = ep_dir / "audio"
+            dst = subdir / f"{slug}_dialogue{src_path.suffix}"
+        elif kind == "tts_narration":
+            subdir = ep_dir / "audio"
+            dst = subdir / f"{slug}_narration{src_path.suffix}"
+        else:
+            raise ValueError(f"Unknown asset kind: {kind!r}")
+
+        _relative_symlink_to_series_root(src_path, dst)
+        return dst
+
 
 # ---------------------------------------------------------------------------
 # Checkpoint controller (pipeline integration)

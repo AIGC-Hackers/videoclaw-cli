@@ -228,6 +228,13 @@ def drama_run(
             help="Enable agent-driven execution (Director, Cameraman, Reviewer plug into DAG).",
         ),
     ] = False,
+    shot_breakpoint: Annotated[
+        bool,
+        typer.Option(
+            "--shot-breakpoint",
+            help="Pause after each video shot completes for interactive review.",
+        ),
+    ] = False,
     dry_run: Annotated[
         bool, typer.Option("--dry-run", help="Show execution plan without running.")
     ] = False,
@@ -242,6 +249,12 @@ def drama_run(
 
     \b
     Use --max-shots N to limit generation to the first N shots (e.g. for test runs).
+    Use --shot-breakpoint to pause after each shot for manual review.
+
+    \b
+    Examples:
+        claw drama run abc123
+        claw drama run abc123 --max-shots 3 --shot-breakpoint
     """
     configure_logging(verbose)
     show_banner()
@@ -312,6 +325,7 @@ def drama_run(
             series, mgr, start, end, budget,
             concurrency, refresh_urls, max_shots=max_shots,
             review=review, use_agents=agents,
+            shot_breakpoint=shot_breakpoint,
         ))
     except typer.Exit:
         raise
@@ -336,6 +350,7 @@ async def _drama_run_async(
     max_shots: int | None = None,
     review: bool = True,
     use_agents: bool = False,
+    shot_breakpoint: bool = False,
 ) -> None:
     console = get_console()
 
@@ -467,7 +482,10 @@ async def _drama_run_async(
                 f"Episode {ep.number}...",
                 total=len(ep.scenes) + 4,
             )
-            await runner.run_episode(series, ep, max_shots=max_shots)
+            await runner.run_episode(
+                series, ep, max_shots=max_shots,
+                shot_breakpoint=shot_breakpoint,
+            )
             progress.update(task, completed=len(ep.scenes) + 4)
 
         status_style = "green" if ep.status == "completed" else "red"

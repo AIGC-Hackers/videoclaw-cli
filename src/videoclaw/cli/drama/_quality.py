@@ -533,6 +533,13 @@ def drama_pipeline(
             help="Checkpoint ID — re-execute the stage that produced it.",
         ),
     ] = None,
+    shot_breakpoint: Annotated[
+        bool,
+        typer.Option(
+            "--shot-breakpoint",
+            help="Pause after each video shot completes for interactive review.",
+        ),
+    ] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
     """Run the full production pipeline: design -> refresh -> generate -> audit.
@@ -702,6 +709,7 @@ def drama_pipeline(
                 skip_run, skip_audit, audit_rounds, concurrency,
                 use_agents=agents,
                 breakpoints=bp_list,
+                shot_breakpoint=shot_breakpoint,
             )
         )
     except Exception as exc:
@@ -726,6 +734,7 @@ async def _drama_pipeline_async(
     *,
     use_agents: bool = False,
     breakpoints: list[CheckpointStage] | None = None,
+    shot_breakpoint: bool = False,
 ) -> dict[str, Any]:
     """Execute the full production pipeline stages sequentially.
 
@@ -854,7 +863,9 @@ async def _drama_pipeline_async(
         )
 
         try:
-            state = await runner.run_episode(series, episode)
+            state = await runner.run_episode(
+                series, episode, shot_breakpoint=shot_breakpoint,
+            )
             gen_cost = state.cost_total
             result["total_cost"] += gen_cost
 
