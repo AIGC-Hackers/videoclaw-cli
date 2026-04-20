@@ -7,12 +7,14 @@ specific cloud video generation API.
 Available adapters: Seedance (BytePlus), Kling, MiniMax, ZhiPu, OpenAI, Mock.
 """
 
+from typing import Any
+
 __all__ = [
     "BaseCloudVideoAdapter",
 ]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     """Lazy imports — adapters pull in heavy SDK dependencies."""
     _import_map = {
         "BaseCloudVideoAdapter": "videoclaw.models.adapters.base",

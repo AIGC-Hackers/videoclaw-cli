@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+from collections.abc import AsyncIterator
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -117,7 +118,7 @@ async def stream_project_cost(project_id: str) -> StreamingResponse:
 
     event_bus.subscribe(COST_UPDATED, _on_cost)
 
-    async def _event_generator():
+    async def _event_generator() -> AsyncIterator[str]:
         try:
             while True:
                 try:

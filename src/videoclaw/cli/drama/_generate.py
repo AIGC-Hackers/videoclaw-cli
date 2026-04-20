@@ -613,6 +613,7 @@ async def _drama_regen_shot_async(
 ) -> None:
     console = get_console()
 
+    from rich.panel import Panel  # deferred — already cached after first drama run
     from rich.progress import (  # deferred — already cached after first drama run
         BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeElapsedColumn,
     )

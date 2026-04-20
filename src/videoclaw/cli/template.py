@@ -86,7 +86,7 @@ def template_use(
         out.emit()
         raise typer.Exit(code=1)
 
-    import yaml  # type: ignore[import-untyped]
+    import yaml
 
     data = yaml.safe_load(tpl_path.read_text(encoding="utf-8"))
     defaults = data.get("defaults", {})

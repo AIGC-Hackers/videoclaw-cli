@@ -134,7 +134,7 @@ def doctor() -> None:
         gpu_detail = "Apple Silicon (Metal) available"
     else:
         try:
-            import torch  # type: ignore[import-untyped]
+            import torch
 
             if torch.cuda.is_available():
                 gpu_ok = True

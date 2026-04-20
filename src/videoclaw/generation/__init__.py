@@ -15,6 +15,8 @@ subtitle : SRT/ASS subtitle generation.
 audio : TTS, voice casting, and audio post-processing (subpackage).
 """
 
+from typing import Any
+
 __all__ = [
     # Base
     "BaseImageGenerator",
@@ -41,7 +43,7 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     """Lazy imports to avoid heavy dependency loading at package import time."""
     _import_map = {
         "BaseImageGenerator": "videoclaw.generation.base_image",

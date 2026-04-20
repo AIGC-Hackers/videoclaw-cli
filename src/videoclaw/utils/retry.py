@@ -58,7 +58,7 @@ async def async_retry(
     for attempt in range(1, max_attempts + 1):
         try:
             return await fn()
-        except catch as exc:  # type: ignore[misc]
+        except catch as exc:
             last_exc = exc
             if attempt < max_attempts:
                 wait = backoff_fn(attempt)

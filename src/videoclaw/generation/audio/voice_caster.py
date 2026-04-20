@@ -10,7 +10,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from videoclaw.models.llm.litellm_wrapper import LLMClient
 
 from videoclaw.drama.models import (
     NARRATOR_PRESETS,

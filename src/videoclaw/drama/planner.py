@@ -18,7 +18,10 @@ import math
 import re
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from videoclaw.models.llm.litellm_wrapper import LLMClient
 
 from videoclaw.drama.models import (
     Character,
@@ -668,7 +671,7 @@ class DramaPlanner:
 
         if path.suffix.lower() == ".docx":
             try:
-                from docx import Document  # type: ignore[import-untyped]
+                from docx import Document
             except ImportError:
                 raise ImportError(
                     "python-docx is required to read .docx files. "

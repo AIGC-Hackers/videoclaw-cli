@@ -18,7 +18,7 @@ import re
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-from videoclaw.drama.models import DramaManager, DramaSeries
+from videoclaw.drama.models import Character, DramaManager, DramaSeries
 
 logger = logging.getLogger(__name__)
 
@@ -310,7 +310,7 @@ class CharacterDesigner:
     async def _generate_turnaround(
         self,
         gen: ImageGenerator,
-        character,
+        character: Character,
         appearance: str,
         style_line: str,
         safe_name: str,
@@ -350,7 +350,7 @@ class CharacterDesigner:
     async def _generate_multi_angle(
         self,
         gen: ImageGenerator,
-        character,
+        character: Character,
         appearance: str,
         style_line: str,
         safe_name: str,
@@ -382,7 +382,7 @@ class CharacterDesigner:
     async def _generate_single(
         self,
         gen: ImageGenerator,
-        character,
+        character: Character,
         appearance: str,
         style_line: str,
         safe_name: str,

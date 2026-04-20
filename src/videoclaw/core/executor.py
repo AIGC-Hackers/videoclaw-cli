@@ -873,12 +873,12 @@ class DAGExecutor:
             # --- Generic mode: single voiceover from full script ---
             path = audio_dir / "voiceover.mp3"
             await tts.generate_voiceover(state.script, path, language=language)
-            audio_paths: list[dict[str, str]] = [
+            voiceover_paths: list[dict[str, str]] = [
                 {"type": "voiceover", "path": str(path)},
             ]
-            state.assets["tts_audio"] = _json.dumps(audio_paths)
+            state.assets["tts_audio"] = _json.dumps(voiceover_paths)
             logger.info("[tts] Synthesized 1 generic voiceover segment")
-            return {"audio_paths": audio_paths, "count": 1}
+            return {"audio_paths": voiceover_paths, "count": 1}
 
         # No scenes and no script -- nothing to synthesize
         state.assets["tts_audio"] = _json.dumps([])

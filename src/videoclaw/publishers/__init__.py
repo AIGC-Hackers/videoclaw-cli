@@ -1,5 +1,7 @@
 """Platform publishers — upload finished videos to distribution platforms."""
 
+from typing import Any
+
 from videoclaw.publishers.base import Publisher, PublishRequest, PublishResult, PublishStatus
 
 __all__ = [
@@ -15,7 +17,7 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     """Lazy imports for platform publishers with heavy SDK dependencies."""
     _import_map = {
         "BilibiliPublisher": "videoclaw.publishers.bilibili",

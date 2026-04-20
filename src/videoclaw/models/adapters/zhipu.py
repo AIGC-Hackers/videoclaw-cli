@@ -15,7 +15,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
-from zhipuai import ZhipuAI
+from zhipuai import ZhipuAI  # type: ignore[import-untyped]
 
 from videoclaw.config import get_config
 from videoclaw.models.adapters.base import BaseCloudVideoAdapter

@@ -84,7 +84,7 @@ class PromptReviewer:
         )
         return confirmed
 
-    def _display_scene(self, scene: DramaScene, idx: int, total: int):
+    def _display_scene(self, scene: DramaScene, idx: int, total: int) -> None:
         """Display a single scene's enhanced prompt."""
         meta = (
             f"[dim]Duration: {scene.duration_seconds}s | "

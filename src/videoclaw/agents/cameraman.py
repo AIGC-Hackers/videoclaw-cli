@@ -24,6 +24,7 @@ from videoclaw.agents.base import (
 
 if TYPE_CHECKING:
     from videoclaw.drama.models import DramaScene, DramaSeries, Episode
+    from videoclaw.drama.prompt_enhancer import PromptEnhancer
 
 logger = logging.getLogger(__name__)
 

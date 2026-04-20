@@ -1,12 +1,14 @@
 """LLM client wrappers for text generation tasks."""
 
+from typing import Any
+
 __all__ = [
     "LLMClient",
     "TokenUsage",
 ]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     """Lazy imports to avoid loading litellm at package import time."""
     _import_map = {
         "LLMClient": "videoclaw.models.llm.litellm_wrapper",

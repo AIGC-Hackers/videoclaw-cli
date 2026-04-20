@@ -9,6 +9,8 @@ adapters : Cloud video model adapters (Seedance, Kling, MiniMax, etc.).
 llm : LLM client wrappers for text generation.
 """
 
+from typing import Any
+
 __all__ = [
     "ExecutionMode",
     "GenerationRequest",
@@ -26,7 +28,7 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     """Lazy imports to avoid heavy dependency loading at package import time."""
     _import_map = {
         "ModelCapability": "videoclaw.models.protocol",

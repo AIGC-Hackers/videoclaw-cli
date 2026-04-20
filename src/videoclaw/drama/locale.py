@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from videoclaw.drama.models import (
     DramaGenre,
@@ -114,7 +115,7 @@ def list_locales() -> list[str]:
     return sorted(_LOCALES.keys())
 
 
-def get_locale_info() -> list[dict[str, str]]:
+def get_locale_info() -> list[dict[str, Any]]:
     """Return metadata about registered locales (for ``claw info``)."""
     return [
         {

@@ -600,29 +600,33 @@ class SeedanceVideoAdapter:
         if segments:
             from videoclaw.drama.prompt_segments import ContentBuilder, PromptSegment
             if isinstance(segments, list) and segments and isinstance(segments[0], PromptSegment):
-                content = ContentBuilder.build(segments)
+                structured_content = ContentBuilder.build(segments)
                 # Also handle path-only refs via existing base64 logic
                 path_refs = ContentBuilder.collect_path_refs(segments)
                 for ref in path_refs:
                     if ref.path:
-                        image_count = sum(1 for c in content if c.get("type") == "image_url")
+                        image_count = sum(
+                            1 for c in structured_content if c.get("type") == "image_url"
+                        )
                         if image_count >= _MAX_REFERENCE_IMAGES:
                             break
                         prepared = prepare_reference_image(ref.path)
                         if prepared:
                             data_uri = _image_to_data_uri(prepared)
                             if data_uri:
-                                content.append({
+                                structured_content.append({
                                     "type": "image_url",
                                     "image_url": {"url": data_uri},
                                     "role": "reference_image",
                                 })
-                image_count = sum(1 for c in content if c.get("type") == "image_url")
+                image_count = sum(
+                    1 for c in structured_content if c.get("type") == "image_url"
+                )
                 logger.info(
                     "[seedance] Structured content mode: %d entries (%d images)",
-                    len(content), image_count,
+                    len(structured_content), image_count,
                 )
-                return content
+                return structured_content
 
         # --- Existing content building logic (unchanged below) ---
         content: list[dict[str, Any]] = []
