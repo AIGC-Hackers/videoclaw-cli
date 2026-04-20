@@ -42,6 +42,60 @@ from videoclaw.cli._app import (
 from videoclaw.cli._output import get_console, get_output
 
 
+@drama_app.command("series-view")
+def drama_series_view(
+    series_id: Annotated[
+        str, typer.Argument(help="Drama series ID to rebuild the series view for.")
+    ],
+    output_dir: Annotated[
+        str,
+        typer.Option(
+            "--output", "-o",
+            help="Override the deliverables root (default: config.deliverables_dir).",
+        ),
+    ] = "",
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """Rebuild the series-level view (full, idempotent).
+
+    Creates / refreshes ``<deliverables_dir>/<series_slug>/``:
+    ``_SERIES.md``, ``characters/``, ``scenes/``. Independent of the
+    checkpoint flow — useful for manual recovery or ad-hoc refresh.
+    """
+    configure_logging(verbose)
+    show_banner()
+    console = get_console()
+    out = get_output()
+    out._command = "drama.series-view"
+
+    from videoclaw.config import get_config
+    from videoclaw.drama.checkpoint import build_series_view
+    from videoclaw.drama.models import DramaManager
+
+    cfg = get_config()
+    mgr = DramaManager()
+    try:
+        series = mgr.load(series_id)
+    except FileNotFoundError:
+        console.print(f"[red]Series {series_id!r} not found.[/red]")
+        out.set_error(f"Series {series_id!r} not found.")
+        out.emit()
+        raise typer.Exit(code=1)
+
+    deliverables_dir = Path(output_dir) if output_dir else cfg.deliverables_dir
+    series_root = build_series_view(
+        series,
+        deliverables_dir=deliverables_dir,
+        projects_dir=cfg.projects_dir,
+    )
+    console.print(f"[bold green]Series view rebuilt:[/bold green] {series_root}")
+    out.set_result({
+        "series_id": series_id,
+        "series_root": str(series_root),
+    })
+    out.emit()
+
+
 def _materialize_symlinks(review_dir: Path) -> int:
     """Replace every symlink under *review_dir* with a real file copy.
 
@@ -128,7 +182,7 @@ def drama_export(
     out._command = "drama.export"
 
     from videoclaw.config import get_config
-    from videoclaw.drama.checkpoint import build_review_dir
+    from videoclaw.drama.checkpoint import build_review_dir, build_series_view
     from videoclaw.drama.models import DramaManager
 
     cfg = get_config()
@@ -158,6 +212,15 @@ def drama_export(
     console.print(
         f"[bold cyan]Exporting deliverables:[/bold cyan] "
         f"{series.title or series_id}  →  {deliverables_dir}"
+    )
+
+    # Ensure the series-level view is fresh before the per-episode review
+    # dirs symlink back through it. Idempotent and cheap; explicit here so
+    # export works even when drama_run hasn't been invoked recently.
+    build_series_view(
+        series,
+        deliverables_dir=deliverables_dir,
+        projects_dir=projects_dir,
     )
 
     review_dirs: list[Path] = []
