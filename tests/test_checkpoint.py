@@ -1443,6 +1443,7 @@ async def test_review_txt_has_sources_section(tmp_path: Path):
         scene_id="ep01_s01",
         description="Opening",
         visual_prompt="test",
+        characters_present=["Hero"],
     )
     episode = Episode(
         episode_id="ep1",
@@ -1560,8 +1561,9 @@ async def test_build_review_dir_populates_all_subdirs(tmp_path: Path):
     )
     scene = DramaScene(
         scene_id="ep01_s01",
-        description="Arrival",
+        description="Arrival at the Pool deck",
         visual_prompt="A shot.",
+        characters_present=["Hero"],
     )
     episode = Episode(
         episode_id="ep1",
