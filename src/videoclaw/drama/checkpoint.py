@@ -325,19 +325,68 @@ def build_review_dir(
 # ---------------------------------------------------------------------------
 
 
-def _update_characters_dir(series: DramaSeries, chars_dir: Path) -> None:
-    for char in series.characters:
-        if char.reference_image:
-            src = Path(char.reference_image)
-            if src.exists():
+def _update_characters_dir(
+    series: DramaSeries,
+    chars_dir: Path,
+    *,
+    episode: Episode | None = None,
+    series_root: Path | None = None,
+) -> None:
+    """Materialize character turnarounds into ``chars_dir``.
+
+    Two modes:
+
+    - ``episode is None`` — series-level source-of-truth mode: write all
+      ``series.characters`` with their projects-side ``reference_image``
+      as the symlink target (legacy default).
+    - ``episode`` provided — episode-filtered mode: write only characters
+      appearing in ``episode.scenes[*].characters_present``; the symlink
+      target is the series-level real file at
+      ``<series_root>/characters/<name>_turnaround.<ext>`` via a relative
+      chain (``../../characters/...``). ``series_root`` is required.
+    """
+    if episode is None:
+        for char in series.characters:
+            if char.reference_image:
+                src = Path(char.reference_image)
+                if src.exists():
+                    chars_dir.mkdir(parents=True, exist_ok=True)
+                    name = f"{_normalize_char_name(char.name)}_turnaround{src.suffix}"
+                    _safe_symlink(src, chars_dir / name)
+            url = getattr(char, "reference_image_url", None)
+            if url:
                 chars_dir.mkdir(parents=True, exist_ok=True)
-                name = f"{_slugify(char.name)}_turnaround{src.suffix}"
-                _safe_symlink(src, chars_dir / name)
-        url = getattr(char, "reference_image_url", None)
-        if url:
-            chars_dir.mkdir(parents=True, exist_ok=True)
-            url_file = chars_dir / f"{_slugify(char.name)}_url.txt"
-            url_file.write_text(url, encoding="utf-8")
+                url_file = chars_dir / f"{_normalize_char_name(char.name)}_url.txt"
+                url_file.write_text(url, encoding="utf-8")
+        return
+
+    if series_root is None:
+        raise ValueError("series_root is required when episode is provided")
+
+    series_chars = {_normalize_char_name(c.name): c for c in series.characters}
+    present: set[str] = set()
+    for sc in episode.scenes:
+        for raw_name in sc.characters_present:
+            norm = _normalize_char_name(raw_name)
+            if norm in series_chars:
+                present.add(norm)
+            else:
+                logger.warning(
+                    "Character %r in ep%d not found in series.characters",
+                    raw_name,
+                    episode.number,
+                )
+
+    for norm in sorted(present):
+        char = series_chars[norm]
+        if not char.reference_image:
+            continue
+        ext = Path(char.reference_image).suffix
+        src_in_root = series_root / "characters" / f"{norm}_turnaround{ext}"
+        if not src_in_root.exists():
+            continue
+        dst = chars_dir / f"{norm}_turnaround{ext}"
+        _relative_symlink_to_series_root(src_in_root, dst)
 
 
 def _update_series_characters_dir(series: DramaSeries, chars_dir: Path) -> None:

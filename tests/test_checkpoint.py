@@ -2146,6 +2146,122 @@ class TestWriteSeriesMd:
         assert "E2" in content
 
 
+class TestUpdateCharactersDirEpisodeFiltered:
+    def _setup(self, tmp_path):
+        from videoclaw.drama.models import (
+            Character,
+            DramaScene,
+            DramaSeries,
+            Episode,
+        )
+        chars_src = tmp_path / "src"
+        chars_src.mkdir()
+        (chars_src / "ivy.png").write_bytes(b"x")
+        (chars_src / "colton.png").write_bytes(b"y")
+        (chars_src / "chloe.png").write_bytes(b"z")
+        series = DramaSeries(title="t", series_id="abc")
+        series.characters = [
+            Character(name="Ivy", reference_image=str(chars_src / "ivy.png")),
+            Character(name="Colton", reference_image=str(chars_src / "colton.png")),
+            Character(name="Chloe", reference_image=str(chars_src / "chloe.png")),
+        ]
+        ep = Episode(number=1)
+        ep.scenes = [
+            DramaScene(characters_present=["Ivy", "Colton"]),
+            DramaScene(characters_present=["Ivy"]),
+        ]
+        return series, ep, tmp_path
+
+    def test_only_present_chars_symlinked(self, tmp_path):
+        from videoclaw.drama.checkpoint import (
+            _update_characters_dir,
+            _update_series_characters_dir,
+        )
+        series, ep, root = self._setup(tmp_path)
+        series_root = root / "deliv" / "t"
+        _update_series_characters_dir(series, series_root / "characters")
+        ep_chars = series_root / "ep01" / "characters"
+        _update_characters_dir(
+            series, ep_chars, episode=ep, series_root=series_root
+        )
+        assert (ep_chars / "ivy_turnaround.png").is_symlink()
+        assert (ep_chars / "colton_turnaround.png").is_symlink()
+        assert not (ep_chars / "chloe_turnaround.png").exists()
+
+    def test_relative_symlink_target(self, tmp_path):
+        import os
+        from videoclaw.drama.checkpoint import (
+            _update_characters_dir,
+            _update_series_characters_dir,
+        )
+        series, ep, root = self._setup(tmp_path)
+        series_root = root / "deliv" / "t"
+        _update_series_characters_dir(series, series_root / "characters")
+        ep_chars = series_root / "ep01" / "characters"
+        _update_characters_dir(
+            series, ep_chars, episode=ep, series_root=series_root
+        )
+        assert os.readlink(ep_chars / "ivy_turnaround.png") == (
+            "../../characters/ivy_turnaround.png"
+        )
+
+    def test_unknown_present_char_logs_warning(self, tmp_path, caplog):
+        import logging
+        from videoclaw.drama.checkpoint import (
+            _update_characters_dir,
+            _update_series_characters_dir,
+        )
+        series, ep, root = self._setup(tmp_path)
+        ep.scenes[0].characters_present = ["Ivy", "Mystery"]
+        series_root = root / "deliv" / "t"
+        _update_series_characters_dir(series, series_root / "characters")
+        with caplog.at_level(logging.WARNING, logger="videoclaw.drama.checkpoint"):
+            _update_characters_dir(
+                series,
+                series_root / "ep01" / "characters",
+                episode=ep,
+                series_root=series_root,
+            )
+        assert any("Mystery" in r.message for r in caplog.records)
+
+    def test_case_insensitive_match(self, tmp_path):
+        from videoclaw.drama.checkpoint import (
+            _update_characters_dir,
+            _update_series_characters_dir,
+        )
+        series, ep, root = self._setup(tmp_path)
+        ep.scenes[0].characters_present = ["IVY"]
+        ep.scenes[1].characters_present = []
+        series_root = root / "deliv" / "t"
+        _update_series_characters_dir(series, series_root / "characters")
+        ep_chars = series_root / "ep01" / "characters"
+        _update_characters_dir(
+            series, ep_chars, episode=ep, series_root=series_root
+        )
+        assert (ep_chars / "ivy_turnaround.png").is_symlink()
+
+    def test_default_mode_unchanged(self, tmp_path):
+        """Without episode= kwarg, behavior matches source-of-truth mode."""
+        from videoclaw.drama.checkpoint import _update_characters_dir
+        from videoclaw.drama.models import Character, DramaSeries
+        src = tmp_path / "src" / "ivy.png"
+        src.parent.mkdir(parents=True)
+        src.write_bytes(b"x")
+        series = DramaSeries(title="t", series_id="x")
+        series.characters = [Character(name="Ivy", reference_image=str(src))]
+        chars_dir = tmp_path / "out"
+        _update_characters_dir(series, chars_dir)
+        assert (chars_dir / "ivy_turnaround.png").is_symlink()
+
+    def test_episode_without_series_root_raises(self, tmp_path):
+        from videoclaw.drama.checkpoint import _update_characters_dir
+        from videoclaw.drama.models import DramaSeries, Episode
+        series = DramaSeries(title="t", series_id="x")
+        ep = Episode(number=1)
+        with pytest.raises(ValueError, match="series_root"):
+            _update_characters_dir(series, tmp_path / "out", episode=ep)
+
+
 class TestBuildSeriesView:
     def _setup(self, tmp_path):
         from videoclaw.drama.models import (
