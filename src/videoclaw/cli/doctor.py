@@ -7,6 +7,7 @@ import platform
 import shutil
 import subprocess
 import sys
+from typing import Any
 
 from videoclaw.cli._app import app, show_banner, status_icon
 from videoclaw.cli._output import get_console, get_output
@@ -22,7 +23,7 @@ def doctor() -> None:
     show_banner()
     console.print("[bold]Running system diagnostics...[/bold]\n")
 
-    checks: dict[str, dict] = {}
+    checks: dict[str, dict[str, Any]] = {}
 
     from rich.table import Table  # deferred — saves ~72ms at startup
     table = Table(

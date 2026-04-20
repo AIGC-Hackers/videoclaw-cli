@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -64,7 +65,7 @@ async def list_projects() -> list[ProjectSummary]:
 
 
 @router.get("/{project_id}")
-async def get_project(project_id: str) -> dict:
+async def get_project(project_id: str) -> dict[str, Any]:
     try:
         ps = await _state_mgr.load_async(project_id)
     except FileNotFoundError:
@@ -73,7 +74,7 @@ async def get_project(project_id: str) -> dict:
 
 
 @router.get("/{project_id}/cost")
-async def get_project_cost(project_id: str) -> dict:
+async def get_project_cost(project_id: str) -> dict[str, Any]:
     """Return detailed cost breakdown for a project from its persisted ledger."""
     cost_path = _state_mgr.projects_dir / project_id / "cost.json"
     if not cost_path.exists():
@@ -108,9 +109,9 @@ async def stream_project_cost(project_id: str) -> StreamingResponse:
     Emits ``data: {...}`` events as costs accumulate. Connect with
     ``EventSource`` from a browser or ``curl -N``.
     """
-    queue: asyncio.Queue[dict] = asyncio.Queue()
+    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
 
-    async def _on_cost(event_type: str, data: dict) -> None:
+    async def _on_cost(event_type: str, data: dict[str, Any]) -> None:
         if data.get("project_id") == project_id:
             await queue.put(data)
 
@@ -137,7 +138,7 @@ async def stream_project_cost(project_id: str) -> StreamingResponse:
 
 
 @router.delete("/{project_id}")
-async def delete_project(project_id: str) -> dict:
+async def delete_project(project_id: str) -> dict[str, Any]:
     project_dir = _state_mgr.projects_dir / project_id
     if not project_dir.exists():
         raise HTTPException(status_code=404, detail="Project not found")

@@ -21,7 +21,7 @@ import asyncio
 import json
 import sys
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -153,7 +153,7 @@ async def _video_async(
     router = ModelRouter(registry)
     generator = VideoGenerator(router=router)
 
-    extra: dict = {}
+    extra: dict[str, Any] = {}
     if reference_image:
         if reference_image.startswith("http"):
             extra["image_urls"] = [{"url": reference_image, "role": "reference_image"}]

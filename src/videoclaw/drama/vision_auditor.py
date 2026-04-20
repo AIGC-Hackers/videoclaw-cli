@@ -401,11 +401,11 @@ class AuditLog:
         with self.log_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
-    def read_all(self) -> list[dict]:
+    def read_all(self) -> list[dict[str, Any]]:
         """Read all rounds from the log file.  Returns ``[]`` if file missing."""
         if not self.log_path.exists():
             return []
-        rounds: list[dict] = []
+        rounds: list[dict[str, Any]] = []
         with self.log_path.open("r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
@@ -941,7 +941,7 @@ class VisionAuditor:
         video_path: Path,
         episode_number: int,
         total_duration: float | None = None,
-        alignment_report: dict | None = None,
+        alignment_report: dict[str, Any] | None = None,
     ) -> ShotAuditResult:
         """Audit a final composed video with duration-adaptive strategy.
 
@@ -1053,7 +1053,7 @@ class VisionAuditor:
 
     async def _composition_vision_llm(
         self,
-        frames: list,
+        frames: list[Any],
         duration: float,
     ) -> tuple[list[str], list[str]]:
         """Run LLM audit on composition frames, return (fatals, tolerables)."""

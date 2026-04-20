@@ -21,6 +21,7 @@ import asyncio
 import logging
 import os
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -172,7 +173,7 @@ class TikTokPublisher:
         video_size = video_path.stat().st_size
         title = request.title[:_MAX_TITLE_CHARS]
 
-        post_info: dict = {
+        post_info: dict[str, Any] = {
             "title": title,
             "privacy_level": self._privacy_level,
             "disable_duet": False,

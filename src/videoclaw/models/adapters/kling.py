@@ -14,6 +14,7 @@ import base64
 import logging
 from collections.abc import AsyncIterator
 from math import gcd
+from typing import Any
 
 import httpx
 
@@ -138,10 +139,10 @@ class KlingVideoAdapter(BaseCloudVideoAdapter):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _build_payload(self, request: GenerationRequest) -> dict:
+    def _build_payload(self, request: GenerationRequest) -> dict[str, Any]:
         api_model = KLING_MODELS.get(self.model_id, "kling-v1")
 
-        payload: dict = {
+        payload: dict[str, Any] = {
             "model": api_model,
             "prompt": request.prompt,
         }

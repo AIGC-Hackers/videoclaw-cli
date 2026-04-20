@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 
 class PublishStatus(StrEnum):
@@ -24,7 +24,7 @@ class PublishRequest:
     tags: list[str] = field(default_factory=list)
     thumbnail_path: Path | None = None
     schedule_at: str | None = None  # ISO 8601
-    extra: dict = field(default_factory=dict)
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)

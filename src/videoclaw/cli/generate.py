@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from rich.panel import Panel
@@ -245,7 +245,7 @@ async def _generate_async(
 
         completed_count = 0
 
-        async def on_task_completed(event_type: str, event_data: dict) -> None:
+        async def on_task_completed(event_type: str, event_data: dict[str, Any]) -> None:
             nonlocal completed_count
             completed_count += 1
             task_type = event_data.get("task_type", "unknown")

@@ -32,7 +32,7 @@ class GenerateRequest(BaseModel):
 
 class FlowRunRequest(BaseModel):
     """Request body for running a ClawFlow pipeline from inline YAML dict."""
-    flow: dict
+    flow: dict[str, Any]
     prompt: str | None = None
 
 
@@ -92,7 +92,7 @@ async def start_generation(body: GenerateRequest) -> GenerateResponse:
 
 
 @router.get("/{project_id}/status")
-async def get_status(project_id: str) -> dict:
+async def get_status(project_id: str) -> dict[str, Any]:
     try:
         ps = await _state_mgr.load_async(project_id)
     except FileNotFoundError:

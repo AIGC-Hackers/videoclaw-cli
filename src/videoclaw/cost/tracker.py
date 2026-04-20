@@ -111,7 +111,7 @@ class CostTracker:
         self.budget_usd = budget_usd
         self._records: list[CostRecord] = []
         self._total_usd: float = 0.0  # O(1) running total accumulator
-        self._background_tasks: set[asyncio.Task] = set()  # prevent GC of fire-and-forget tasks
+        self._background_tasks: set[asyncio.Task[Any]] = set()  # prevent GC of fire-and-forget tasks
 
     # -- Mutation -----------------------------------------------------------
 

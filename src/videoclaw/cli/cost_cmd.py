@@ -6,7 +6,7 @@ Registered as ``claw cost`` sub-commands via the Typer ``cost_app``.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -102,7 +102,7 @@ def cost_list() -> None:
 
     from videoclaw.cost.tracker import CostTracker
 
-    results: list[dict] = []
+    results: list[dict[str, Any]] = []
 
     if cfg.projects_dir.exists():
         for project_dir in sorted(cfg.projects_dir.iterdir()):

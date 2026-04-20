@@ -13,7 +13,7 @@ import io
 import logging
 import os
 from pathlib import Path
-from typing import ClassVar, NamedTuple, Protocol, runtime_checkable
+from typing import Any, ClassVar, NamedTuple, Protocol, runtime_checkable
 
 from videoclaw.drama.models import (
     AudioSegment,
@@ -535,7 +535,7 @@ class WaveSpeedTTSProvider:
     async def synthesize_with_profile(
         self,
         text: str,
-        voice_profile: dict,
+        voice_profile: dict[str, Any],
         language: str = "zh",
     ) -> bytes:
         """Synthesize using a VoiceProfile dict (convenience wrapper)."""

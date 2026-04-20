@@ -12,6 +12,7 @@ import json
 import logging
 import shutil
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +98,7 @@ async def get_video_duration(path: Path) -> float:
         ) from exc
 
 
-async def get_video_info(path: Path) -> dict:
+async def get_video_info(path: Path) -> dict[str, Any]:
     """Probe full video metadata as a dictionary.
 
     The returned dict contains top-level keys ``"format"`` and ``"streams"``

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 
@@ -346,7 +346,7 @@ async def _drama_audit_regen_async(
     max_rounds: int,
     recompose: bool,
     preview: bool = False,
-) -> dict:
+) -> dict[str, Any]:
     """Execute the audit -> regen -> re-audit loop."""
     from videoclaw.drama.runner import DramaRunner
     from videoclaw.drama.vision_auditor import VisionAuditor
@@ -356,7 +356,7 @@ async def _drama_audit_regen_async(
     runner = DramaRunner(drama_manager=mgr)
 
     total_cost = 0.0
-    history: list[dict] = []
+    history: list[dict[str, Any]] = []
 
     for round_num in range(1, max_rounds + 1):
         console.print(f"\n[bold cyan]═══ Round {round_num}/{max_rounds} — Audit ═══[/bold cyan]")
@@ -725,7 +725,7 @@ async def _drama_pipeline_async(
     *,
     use_agents: bool = False,
     breakpoints: list[CheckpointStage] | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Execute the full production pipeline stages sequentially.
 
     When *breakpoints* is not ``[]``, a :class:`CheckpointController` saves
@@ -739,7 +739,7 @@ async def _drama_pipeline_async(
     )
 
     console = get_console()
-    result: dict = {
+    result: dict[str, Any] = {
         "series_id": series.series_id,
         "episode": episode.number,
         "stages": {},

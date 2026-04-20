@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 
@@ -115,7 +115,7 @@ def drama_preview_prompts(
         reviewer = PromptReviewer(enabled=True, console=console)
         reviewer.review_episode(ep, series)
         mgr.save(series)
-        prompts_data: list[dict] = [
+        prompts_data: list[dict[str, Any]] = [
             {
                 "scene_id": sc.scene_id,
                 "duration": sc.duration_seconds,

@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import AsyncIterator
+from typing import Any
 
 from videoclaw.models.protocol import (
     ExecutionMode,
@@ -124,7 +125,7 @@ class BaseCloudVideoAdapter:
         request: GenerationRequest,
         *,
         job_id: str = "",
-        extra_metadata: dict | None = None,
+        extra_metadata: dict[str, Any] | None = None,
     ) -> GenerationResult:
         """Build a standard GenerationResult."""
         metadata = {

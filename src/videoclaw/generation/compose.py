@@ -12,6 +12,7 @@ import logging
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
+from typing import Any
 
 from videoclaw.utils.ffmpeg import check_ffmpeg, get_video_duration, get_video_info, run_ffmpeg
 from videoclaw.utils.retry import async_retry
@@ -89,7 +90,7 @@ class AlignmentReport:
 
 async def align_clips(
     video_paths: list[Path],
-    scenes: list[dict],
+    scenes: list[dict[str, Any]],
 ) -> AlignmentReport:
     """Probe actual video durations and align them with scene data.
 
@@ -198,7 +199,7 @@ async def validate_composed_duration(
     composed_path: Path,
     alignment: AlignmentReport,
     transition_duration: float = 0.5,
-) -> dict:
+) -> dict[str, Any]:
     """Validate the composed video duration against the alignment expectation.
 
     The expected duration accounts for transition overlap:

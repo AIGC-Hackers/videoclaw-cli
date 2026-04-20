@@ -367,7 +367,7 @@ def build_episode_dag(
     return dag, state
 
 
-def _build_scene_dict(scene: "DramaScene", character_voices: dict) -> dict:
+def _build_scene_dict(scene: "DramaScene", character_voices: dict[str, Any]) -> dict[str, Any]:
     """Build the TTS-node scene parameter dict for a single scene."""
     voice = None
     if scene.speaking_character and scene.speaking_character in character_voices:
@@ -476,12 +476,12 @@ def _build_drama_dag(
         video_node_ids.append(vid_id)
 
     # -- 4. Per-scene TTS nodes (parallel, one per scene) --
-    character_voices: dict[str, dict] = {}
+    character_voices: dict[str, dict[str, Any]] = {}
     for char in series.characters:
         if char.voice_profile:
             character_voices[char.name] = char.voice_profile.to_dict()
 
-    scenes_data: list[dict] = []
+    scenes_data: list[dict[str, Any]] = []
     tts_node_ids: list[str] = []
     tts_scenes = [scene for _, scene in gen_pairs]  # same subset as video
     for scene in tts_scenes:
@@ -607,7 +607,7 @@ def build_scene_regen_dag(
         regen_prop_ref_map = dict(manifest.prop_references)
 
     # Build character voice lookup
-    character_voices: dict[str, dict] = {}
+    character_voices: dict[str, dict[str, Any]] = {}
     for char in series.characters:
         if char.voice_profile:
             character_voices[char.name] = char.voice_profile.to_dict()
@@ -705,7 +705,7 @@ def build_scene_regen_dag(
     # -- Optional recompose pipeline --
     if recompose:
         # Build scenes_data for all scenes (subtitle_gen and compose need full context)
-        scenes_data: list[dict] = []
+        scenes_data: list[dict[str, Any]] = []
         for sc in episode.scenes:
             sc_voice = None
             if sc.speaking_character and sc.speaking_character in character_voices:

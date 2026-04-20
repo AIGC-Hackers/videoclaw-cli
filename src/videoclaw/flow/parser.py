@@ -124,7 +124,7 @@ def _interpolate(value: Any, variables: dict[str, Any]) -> Any:
     if "{{" not in value:
         return value
 
-    def _replace(match: re.Match) -> str:
+    def _replace(match: re.Match[str]) -> str:
         key = match.group(1)
         if key not in variables:
             raise ValueError(f"Undefined variable: {{{{{key}}}}}")

@@ -72,7 +72,7 @@ def check_pre_production_gate(
     # 3. Scene/background references cover all locations
     item3 = GateItem(name="Scene references cover all locations")
     manifest = getattr(series, "consistency_manifest", None)
-    scene_refs: dict = {}
+    scene_refs: dict[str, str] = {}
     if manifest:
         scene_refs = getattr(manifest, "scene_references", {}) or {}
     episode_locations: set[str] = set()

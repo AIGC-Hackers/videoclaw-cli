@@ -12,6 +12,7 @@ import asyncio
 import base64
 import logging
 from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
 from zhipuai import ZhipuAI
@@ -133,7 +134,7 @@ class ZhipuVideoAdapter(BaseCloudVideoAdapter):
 
         logger.info("[zhipu] Creating task with model: %s, size: %s", self._model, size)
 
-        kwargs: dict = {
+        kwargs: dict[str, Any] = {
             "model": self._model,
             "prompt": request.prompt,
             "size": size,

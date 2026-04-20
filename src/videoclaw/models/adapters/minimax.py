@@ -12,6 +12,7 @@ import asyncio
 import base64
 import logging
 from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
 
@@ -121,10 +122,10 @@ class MiniMaxVideoAdapter(BaseCloudVideoAdapter):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _build_payload(self, request: GenerationRequest) -> dict:
+    def _build_payload(self, request: GenerationRequest) -> dict[str, Any]:
         api_model = MINIMAX_MODELS.get(self._model, "MiniMax-Hailuo-2.3")
 
-        payload: dict = {
+        payload: dict[str, Any] = {
             "model": api_model,
             "prompt": request.prompt,
         }

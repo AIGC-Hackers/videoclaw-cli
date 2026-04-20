@@ -30,6 +30,7 @@ import json
 import logging
 import os
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -201,7 +202,7 @@ class YouTubePublisher:
         """Initialize a resumable upload session. Returns the session URI."""
         video_size = video_path.stat().st_size
 
-        metadata: dict = {
+        metadata: dict[str, Any] = {
             "snippet": {
                 "title": request.title[:100],  # YouTube limit: 100 chars
                 "description": request.description[:5000],

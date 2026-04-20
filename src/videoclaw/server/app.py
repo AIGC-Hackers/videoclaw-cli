@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -45,7 +46,7 @@ def create_app() -> FastAPI:
     app.include_router(ws.router, prefix="/ws", tags=["websocket"])
 
     @app.get("/health")
-    async def health() -> dict:
+    async def health() -> dict[str, Any]:
         return {"status": "ok", "version": "0.1.0"}
 
     return app

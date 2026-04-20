@@ -788,7 +788,7 @@ class DAGExecutor:
             )
 
             # 1. Reconstruct voice_map from node.params or state.metadata
-            raw_voice_map: dict[str, dict] = (
+            raw_voice_map: dict[str, dict[str, Any]] = (
                 node.params.get("voice_map")
                 or state.metadata.get("voice_map")
                 or {}
@@ -901,7 +901,7 @@ class DAGExecutor:
         audio_dir = project_dir / "audio"
         audio_dir.mkdir(parents=True, exist_ok=True)
 
-        scene_data: dict = node.params.get("scene", {})
+        scene_data: dict[str, Any] = node.params.get("scene", {})
         scene_id = scene_data.get("scene_id", "unknown")
 
         from videoclaw.drama.models import (
@@ -914,7 +914,7 @@ class DAGExecutor:
         )
 
         # Reconstruct voice_map
-        raw_voice_map: dict[str, dict] = (
+        raw_voice_map: dict[str, dict[str, Any]] = (
             node.params.get("voice_map")
             or state.metadata.get("voice_map")
             or {}
@@ -1013,7 +1013,7 @@ class DAGExecutor:
 
         # Aggregate per-scene audio segments into a manifest dict
 
-        all_segments: list[dict] = []
+        all_segments: list[dict[str, Any]] = []
         for scene_data in scenes:
             scene_id = scene_data.get("scene_id", "")
             raw = state.assets.get(f"tts_scene_{scene_id}")
@@ -1024,7 +1024,7 @@ class DAGExecutor:
                 except (TypeError, _json.JSONDecodeError):
                     pass
 
-        audio_manifest: dict | None = None
+        audio_manifest: dict[str, Any] | None = None
         if all_segments:
             total_duration = sum(s.get("duration_seconds", 0.0) for s in all_segments)
             audio_manifest = {
@@ -1136,7 +1136,7 @@ class DAGExecutor:
         #    and 1:1 correspondence even when some shots failed.
         scenes = node.params.get("scenes", [])
         video_paths: list[Path] = []
-        matched_scenes: list[dict] = []
+        matched_scenes: list[dict[str, Any]] = []
 
         if scenes:
             # Build shot_id → shot lookup for O(1) matching

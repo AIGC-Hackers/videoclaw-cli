@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+from typing import Any
 
 from videoclaw.cli._app import config_app, status_icon
 from videoclaw.cli._output import get_console, get_output
@@ -103,7 +104,7 @@ def config_check() -> None:
     out._command = "config.check"
 
     cfg = get_config()
-    checks: dict[str, dict] = {}
+    checks: dict[str, dict[str, Any]] = {}
 
     from rich.table import Table
     table = Table(title="Configuration Check", show_header=True, header_style="bold cyan")

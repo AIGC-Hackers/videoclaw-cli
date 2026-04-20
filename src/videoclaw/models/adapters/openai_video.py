@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
 
@@ -177,8 +178,8 @@ class OpenAIVideoAdapter(BaseCloudVideoAdapter):
             return False
 
     @staticmethod
-    def _build_payload(request: GenerationRequest) -> dict:
-        payload: dict = {
+    def _build_payload(request: GenerationRequest) -> dict[str, Any]:
+        payload: dict[str, Any] = {
             "model": "sora",
             "prompt": request.prompt,
             "size": f"{request.width}x{request.height}",
