@@ -1229,7 +1229,7 @@ async def test_scenes_subdir_populated_from_consistency_manifest(tmp_path: Path)
 
     scene = DramaScene(
         scene_id="ep01_s01",
-        description="Intro",
+        description="Intro — Pool deck at sunset then Mansion hall reveal",
         visual_prompt="A wide shot.",
     )
     episode = Episode(
@@ -2260,6 +2260,76 @@ class TestUpdateCharactersDirEpisodeFiltered:
         ep = Episode(number=1)
         with pytest.raises(ValueError, match="series_root"):
             _update_characters_dir(series, tmp_path / "out", episode=ep)
+
+
+class TestUpdateScenesDirEpisodeFiltered:
+    def _setup(self, tmp_path):
+        from videoclaw.drama.models import (
+            ConsistencyManifest,
+            DramaScene,
+            DramaSeries,
+            Episode,
+        )
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "pool.png").write_bytes(b"x")
+        (src / "server.png").write_bytes(b"y")
+        (src / "lobby.png").write_bytes(b"z")
+        series = DramaSeries(title="t", series_id="abc")
+        series.consistency_manifest = ConsistencyManifest(
+            scene_references={
+                "Pool deck": str(src / "pool.png"),
+                "Server room": str(src / "server.png"),
+                "Mansion lobby": str(src / "lobby.png"),
+            }
+        )
+        ep = Episode(number=1)
+        ep.scenes = [
+            DramaScene(description="Pool deck confrontation"),
+            DramaScene(description="back at the Server room"),
+        ]
+        return series, ep, tmp_path
+
+    def test_only_appearing_locations(self, tmp_path):
+        import os
+        from videoclaw.drama.checkpoint import (
+            _update_scenes_dir,
+            _update_series_scenes_dir,
+        )
+        series, ep, root = self._setup(tmp_path)
+        series_root = root / "deliv" / "t"
+        _update_series_scenes_dir(series, series_root / "scenes")
+        ep_scenes = series_root / "ep01" / "scenes"
+        _update_scenes_dir(
+            series, ep_scenes, episode=ep, series_root=series_root
+        )
+        assert (ep_scenes / "pool_deck.png").is_symlink()
+        assert (ep_scenes / "server_room.png").is_symlink()
+        assert not (ep_scenes / "mansion_lobby.png").exists()
+        assert os.readlink(ep_scenes / "pool_deck.png") == (
+            "../../scenes/pool_deck.png"
+        )
+
+    def test_default_mode_unchanged(self, tmp_path):
+        from videoclaw.drama.checkpoint import _update_scenes_dir
+        from videoclaw.drama.models import ConsistencyManifest, DramaSeries
+        src = tmp_path / "pool.png"
+        src.write_bytes(b"x")
+        series = DramaSeries(title="t", series_id="x")
+        series.consistency_manifest = ConsistencyManifest(
+            scene_references={"Pool": str(src)}
+        )
+        out = tmp_path / "scenes"
+        _update_scenes_dir(series, out)
+        assert (out / "pool.png").is_symlink()
+
+    def test_episode_without_series_root_raises(self, tmp_path):
+        from videoclaw.drama.checkpoint import _update_scenes_dir
+        from videoclaw.drama.models import DramaSeries, Episode
+        series = DramaSeries(title="t", series_id="x")
+        ep = Episode(number=1)
+        with pytest.raises(ValueError, match="series_root"):
+            _update_scenes_dir(series, tmp_path / "out", episode=ep)
 
 
 class TestBuildSeriesView:

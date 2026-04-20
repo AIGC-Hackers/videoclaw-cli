@@ -632,25 +632,56 @@ def build_series_view(
     return series_root
 
 
-def _update_scenes_dir(series: DramaSeries, scenes_dir: Path) -> None:
+def _update_scenes_dir(
+    series: DramaSeries,
+    scenes_dir: Path,
+    *,
+    episode: Episode | None = None,
+    series_root: Path | None = None,
+) -> None:
     """Symlink scene/location reference images (景别图 / 场景参考图).
 
-    Reads from ``series.consistency_manifest.scene_references`` (populated
-    by ``scene_designer.py`` during the design stage).  No-ops when the
-    manifest is empty or absent.
+    Two modes (mirror of :func:`_update_characters_dir`):
+
+    - ``episode is None`` — series-level source-of-truth mode: write all
+      ``consistency_manifest.scene_references`` entries.
+    - ``episode`` provided — episode-filtered mode: write only refs whose
+      location key appears in ``episode.scenes[*].description`` (whole-
+      word match via :func:`_episode_locations`), target =
+      ``../../scenes/<slug>.<ext>`` in ``series_root``. Requires
+      ``series_root``.
     """
     manifest = getattr(series, "consistency_manifest", None)
     refs = getattr(manifest, "scene_references", None) or {}
-    for loc_name, ref_path in refs.items():
+
+    if episode is None:
+        for loc_name, ref_path in refs.items():
+            if not ref_path:
+                continue
+            src = Path(ref_path)
+            if not src.exists():
+                continue
+            scenes_dir.mkdir(parents=True, exist_ok=True)
+            slug = _slugify(loc_name, max_len=40) or "location"
+            dst = scenes_dir / f"{slug}{src.suffix}"
+            _safe_symlink(src, dst)
+        return
+
+    if series_root is None:
+        raise ValueError("series_root is required when episode is provided")
+
+    appearing = _episode_locations(episode, set(refs.keys()))
+    for loc_name in sorted(appearing):
+        ref_path = refs.get(loc_name)
         if not ref_path:
             continue
-        src = Path(ref_path)
-        if not src.exists():
-            continue
-        scenes_dir.mkdir(parents=True, exist_ok=True)
+        ext = Path(ref_path).suffix
         slug = _slugify(loc_name, max_len=40) or "location"
-        dst = scenes_dir / f"{slug}{src.suffix}"
-        _safe_symlink(src, dst)
+        src_in_root = series_root / "scenes" / f"{slug}{ext}"
+        if not src_in_root.exists():
+            continue
+        dst = scenes_dir / f"{slug}{ext}"
+        _relative_symlink_to_series_root(src_in_root, dst)
 
 
 def _update_videos_dir(
