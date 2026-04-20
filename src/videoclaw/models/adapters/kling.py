@@ -14,7 +14,7 @@ import base64
 import logging
 from collections.abc import AsyncIterator
 from math import gcd
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -91,6 +91,8 @@ class KlingVideoAdapter(BaseCloudVideoAdapter):
 
         job_id = await self._create_job(request)
         video_url = await self._poll_for_completion(job_id)
+        if video_url is None:
+            raise RuntimeError(f"Kling job {job_id} completed without video URL")
         video_data = await self._download_video(video_url)
 
         return self._build_result(
@@ -200,7 +202,7 @@ class KlingVideoAdapter(BaseCloudVideoAdapter):
                 raise RuntimeError(f"Failed to get job ID from response: {data}")
 
             logger.info("[kling] Created generation job %s", job_id)
-            return job_id
+            return cast(str, job_id)
 
     async def _poll_for_completion(
         self, job_id: str, poll_only: bool = False
@@ -225,10 +227,11 @@ class KlingVideoAdapter(BaseCloudVideoAdapter):
 
             if status in ("succeed", "SUCCESS", "complete"):
                 result = data.get("data", {}).get("task_result", {})
-                return (
+                return cast(
+                    "str | None",
                     result.get("url")
                     or result.get("video_url")
-                    or data.get("data", {}).get("url")
+                    or data.get("data", {}).get("url"),
                 )
             elif status in ("failed", "FAILED", "error"):
                 error_msg = (

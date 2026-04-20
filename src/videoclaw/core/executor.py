@@ -1147,7 +1147,9 @@ class DAGExecutor:
             for scene in scenes:
                 sid = scene.get("scene_id", "")
                 if sid in shot_map:
-                    video_paths.append(Path(shot_map[sid].asset_path))
+                    asset_path = shot_map[sid].asset_path
+                    assert asset_path is not None  # filtered in shot_map comp
+                    video_paths.append(Path(asset_path))
                     matched_scenes.append(scene)
                 else:
                     logger.warning(

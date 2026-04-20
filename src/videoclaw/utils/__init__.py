@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from datetime import UTC, datetime
+from typing import cast
 
 
 def _now_iso() -> str:
@@ -48,6 +49,6 @@ def resolve_credential(
         from videoclaw.config import get_config
         cfg = get_config()
         if val := getattr(cfg, config_attr, None):
-            return val
+            return cast(str, val)
 
     return None

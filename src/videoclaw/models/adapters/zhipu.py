@@ -12,7 +12,7 @@ import asyncio
 import base64
 import logging
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from zhipuai import ZhipuAI  # type: ignore[import-untyped]
@@ -72,6 +72,8 @@ class ZhipuVideoAdapter(BaseCloudVideoAdapter):
 
         task_id = await self._create_task(request)
         video_url = await self._poll_for_completion(task_id)
+        if video_url is None:
+            raise RuntimeError(f"ZhipuAI task {task_id} completed without video URL")
         video_data = await self._download_video(video_url)
 
         return self._build_result(
@@ -157,7 +159,7 @@ class ZhipuVideoAdapter(BaseCloudVideoAdapter):
 
         task_id = response.id
         logger.info("[zhipu] Created generation task: %s", task_id)
-        return task_id
+        return cast(str, task_id)
 
     async def _poll_for_completion(
         self, task_id: str, poll_only: bool = False
@@ -177,7 +179,7 @@ class ZhipuVideoAdapter(BaseCloudVideoAdapter):
             if result.video_result and len(result.video_result) > 0:
                 video_url = result.video_result[0].url
                 logger.info("[zhipu] Task completed, video URL: %s", video_url[:50] + "...")
-                return video_url
+                return cast("str | None", video_url)
             raise RuntimeError(f"Task succeeded but no video_result: {result}")
         elif status == "FAILED":
             error_msg = getattr(result, "error_message", "Unknown error")

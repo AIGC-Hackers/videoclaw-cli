@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import json as _json
 import logging
-from typing import Any
+from typing import Any, cast
 
 from videoclaw.core.events import event_bus
 from videoclaw.core.executor import DAGExecutor
@@ -55,7 +55,7 @@ async def _check_url_alive(
         else:
             async with httpx.AsyncClient(timeout=timeout) as _client:
                 resp = await _client.head(url, follow_redirects=True)
-        return 200 <= resp.status_code < 400
+        return bool(200 <= resp.status_code < 400)
     except (httpx.HTTPError, OSError):
         return False
 
@@ -763,7 +763,7 @@ def _extract_cliffhanger(script: str | None) -> str | None:
     if not script:
         return None
     try:
-        return _json.loads(script).get("cliffhanger")
+        return cast("str | None", _json.loads(script).get("cliffhanger"))
     except (TypeError, _json.JSONDecodeError):
         return None
 

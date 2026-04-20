@@ -12,7 +12,7 @@ import asyncio
 import base64
 import logging
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -76,6 +76,8 @@ class MiniMaxVideoAdapter(BaseCloudVideoAdapter):
 
         task_id = await self._create_task(request)
         file_id = await self._poll_for_completion(task_id)
+        if file_id is None:
+            raise RuntimeError(f"MiniMax task {task_id} completed without file_id")
         video_data = await self._download_video(file_id)
 
         return self._build_result(
@@ -181,7 +183,7 @@ class MiniMaxVideoAdapter(BaseCloudVideoAdapter):
                 raise RuntimeError(f"Failed to get task_id from response: {data}")
 
             logger.info("[minimax] Created generation task %s", task_id)
-            return task_id
+            return cast(str, task_id)
 
     async def _poll_for_completion(
         self, task_id: str, poll_only: bool = False
@@ -204,7 +206,7 @@ class MiniMaxVideoAdapter(BaseCloudVideoAdapter):
                 file_id = data.get("file_id")
                 if not file_id:
                     raise RuntimeError(f"Task succeeded but no file_id: {data}")
-                return file_id
+                return cast("str | None", file_id)
             elif status == "Fail":
                 error_msg = data.get("error_message", "Unknown error")
                 raise RuntimeError(

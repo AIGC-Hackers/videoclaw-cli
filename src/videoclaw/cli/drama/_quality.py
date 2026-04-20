@@ -129,6 +129,7 @@ def drama_audit(
         # ---- Series-aware mode ----------------------------------------
         from videoclaw.drama.models import DramaManager
 
+        assert target is not None  # series_mode implies target is set
         series_id = target
         mgr = DramaManager()
         series = mgr.load(series_id)

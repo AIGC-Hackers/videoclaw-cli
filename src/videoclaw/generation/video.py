@@ -15,6 +15,7 @@ from typing import Any
 from videoclaw.core.events import SHOT_GENERATED, TASK_COMPLETED, TASK_STARTED, event_bus
 from videoclaw.core.state import Shot
 from videoclaw.models.protocol import GenerationRequest, GenerationResult
+from videoclaw.models.registry import get_registry
 from videoclaw.models.router import ModelRouter, RoutingStrategy
 
 logger = logging.getLogger(__name__)
@@ -45,7 +46,7 @@ class VideoGenerator:
 
     def _ensure_router(self) -> ModelRouter:
         if self._router is None:
-            self._router = ModelRouter()
+            self._router = ModelRouter(registry=get_registry())
         return self._router
 
     async def generate_shot(

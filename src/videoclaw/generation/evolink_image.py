@@ -54,6 +54,7 @@ class EvolinkImageGenerator(BaseImageGenerator):
         size: str = "3:4",
         quality: str = "2K",
         reference_urls: list[str] | None = None,
+        **kwargs: Any,
     ) -> Path:
         """Generate an image and save to *output_dir/filename*.
 

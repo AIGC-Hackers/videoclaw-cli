@@ -12,7 +12,7 @@ import logging
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from videoclaw.utils.ffmpeg import check_ffmpeg, get_video_duration, get_video_info, run_ffmpeg
 from videoclaw.utils.retry import async_retry
@@ -29,7 +29,7 @@ def _get_duration_tolerance() -> float:
     """Return configured duration tolerance, falling back to 1.0s."""
     try:
         from videoclaw.config import get_config
-        return get_config().duration_tolerance_seconds
+        return cast(float, get_config().duration_tolerance_seconds)
     except (AttributeError, ValueError):
         return 1.0
 

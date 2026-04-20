@@ -518,6 +518,8 @@ class WaveSpeedTTSProvider:
                     else:
                         raise RuntimeError(f"Unexpected output format: {poll_data}")
 
+                    if not audio_url:
+                        raise RuntimeError(f"WaveSpeed TTS returned no audio URL: {poll_data}")
                     audio_resp = await client.get(audio_url)
                     audio_resp.raise_for_status()
                     audio_data = audio_resp.content

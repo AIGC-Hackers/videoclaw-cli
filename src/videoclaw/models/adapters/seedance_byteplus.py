@@ -13,7 +13,7 @@ import asyncio
 import base64
 import logging
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -194,7 +194,7 @@ class SeedanceBytePlusAdapter(BaseCloudVideoAdapter):
                     raise RuntimeError(f"No task_id in response: {data}")
 
                 logger.info("[seedance-bp] Created task %s", task_id)
-                return task_id
+                return cast(str, task_id)
 
         raise RuntimeError("Seedance 1.5 Pro task creation failed after retries")
 
@@ -240,9 +240,9 @@ class SeedanceBytePlusAdapter(BaseCloudVideoAdapter):
         content = data.get("content")
         if isinstance(content, dict):
             if url := content.get("video_url"):
-                return url
+                return cast("str | None", url)
         if url := data.get("video_url"):
-            return url
+            return cast("str | None", url)
         return None
 
     async def _download_video(self, url: str) -> bytes:

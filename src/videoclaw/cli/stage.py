@@ -264,16 +264,16 @@ async def _image_async(
     with console.status("[cyan]Generating...", spinner="dots"):
         if provider == "gemini":
             from videoclaw.generation.gemini_image import GeminiImageGenerator
-            gen = GeminiImageGenerator()
-            image_path = await gen.generate(prompt=prompt, aspect_ratio=size, output_dir=Path("."))
+            gemini_gen = GeminiImageGenerator()
+            image_path = await gemini_gen.generate(prompt=prompt, aspect_ratio=size, output_dir=Path("."))
         elif provider == "evolink":
             from videoclaw.generation.evolink_image import EvolinkImageGenerator
-            gen = EvolinkImageGenerator()
-            image_path = await gen.generate(prompt=prompt, aspect_ratio=size, output_dir=Path("."))
+            evolink_gen = EvolinkImageGenerator()
+            image_path = await evolink_gen.generate(prompt=prompt, aspect_ratio=size, output_dir=Path("."))
         elif provider == "byteplus":
             from videoclaw.generation.byteplus_image import BytePlusImageGenerator
-            gen = BytePlusImageGenerator()
-            image_path = await gen.generate(prompt=prompt, aspect_ratio=size, output_dir=Path("."))
+            byteplus_gen = BytePlusImageGenerator()
+            image_path = await byteplus_gen.generate(prompt=prompt, aspect_ratio=size, output_dir=Path("."))
         else:
             console.print(
                 f"[red]Unknown provider {provider!r}."

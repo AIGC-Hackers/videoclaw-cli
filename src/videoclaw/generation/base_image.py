@@ -12,7 +12,7 @@ import asyncio
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -111,15 +111,15 @@ class BaseImageGenerator(ABC):
         """
         for item in data.get("data", []):
             if url := item.get("url"):
-                return url
+                return cast("str | None", url)
         for item in data.get("results", []):
             if isinstance(item, str):
                 return item
             if isinstance(item, dict) and (url := item.get("url")):
-                return url
+                return cast("str | None", url)
         if output := data.get("output"):
             if url := output.get("image_url"):
-                return url
+                return cast("str | None", url)
         return None
 
     @staticmethod

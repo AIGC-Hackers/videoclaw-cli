@@ -110,7 +110,11 @@ def info() -> None:
     # --- Models ---
     from videoclaw.models.registry import get_registry
     registry = get_registry()
-    model_names = sorted(registry.list_models()) if hasattr(registry, "list_models") else []
+    model_names: list[str] = (
+        sorted(m["model_id"] for m in registry.list_models())
+        if hasattr(registry, "list_models")
+        else []
+    )
 
     # --- Drama series ---
     try:

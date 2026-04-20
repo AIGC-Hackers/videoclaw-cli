@@ -64,7 +64,7 @@ import subprocess
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -935,7 +935,7 @@ class SeedanceVideoAdapter:
                 )
 
             logger.info("[seedance] Created task %s", task_id)
-            return task_id
+            return cast(str, task_id)
 
         raise RuntimeError("Seedance task creation failed: rate limited after all retries")
 
@@ -1022,15 +1022,15 @@ class SeedanceVideoAdapter:
         content = data.get("content")
         if isinstance(content, dict):
             if url := content.get("video_url"):
-                return url
+                return cast("str | None", url)
 
         # Fallback: data.video_url
         if url := data.get("video_url"):
-            return url
+            return cast("str | None", url)
 
         # Fallback: output.video_url
         if url := data.get("output", {}).get("video_url"):
-            return url
+            return cast("str | None", url)
 
         return None
 

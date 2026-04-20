@@ -160,7 +160,7 @@ class ProducerAgent(BaseAgent):
                     # Collect DAG summary info
                     node_count = len(dag.nodes)
                     task_types: dict[str, int] = {}
-                    for node in dag.nodes:
+                    for node in dag.nodes.values():
                         ttype = node.task_type.value if hasattr(node.task_type, "value") else str(node.task_type)
                         task_types[ttype] = task_types.get(ttype, 0) + 1
 

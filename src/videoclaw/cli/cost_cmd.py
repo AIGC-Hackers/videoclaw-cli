@@ -6,7 +6,7 @@ Registered as ``claw cost`` sub-commands via the Typer ``cost_app``.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 import typer
 
@@ -157,7 +157,7 @@ def cost_compare(
             continue
         tracker = CostTracker.load_ledger(cost_path)
         summary = tracker.get_summary()
-        top_model = max(summary.by_model, key=summary.by_model.get) if summary.by_model else "-"
+        top_model = max(summary.by_model, key=lambda k: summary.by_model[k]) if summary.by_model else "-"
         table.add_row(
             pid,
             f"${summary.total_usd:.4f}",
@@ -242,7 +242,7 @@ def _find_drama_cost(series_id: str) -> Path | None:
                 except Exception:
                     pass
     # Also check projects dir with series_id
-    cost_path = cfg.projects_dir / series_id / "cost.json"
+    cost_path = cast(Path, cfg.projects_dir) / series_id / "cost.json"
     if cost_path.exists():
         return cost_path
     return None

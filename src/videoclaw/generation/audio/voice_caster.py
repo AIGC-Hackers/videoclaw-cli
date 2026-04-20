@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from videoclaw.models.llm.litellm_wrapper import LLMClient
@@ -347,7 +347,7 @@ class VoiceCaster:
             text = text[:-3]
         text = text.strip()
         try:
-            return json.loads(text)
+            return cast("dict[str, Any]", json.loads(text))
         except json.JSONDecodeError as exc:
             logger.error("Failed to parse LLM response as JSON: %s", exc)
             raise ValueError("LLM returned invalid JSON — retry the request.") from exc

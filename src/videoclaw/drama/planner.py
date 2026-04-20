@@ -18,7 +18,7 @@ import math
 import re
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from videoclaw.models.llm.litellm_wrapper import LLMClient
@@ -924,7 +924,7 @@ class DramaPlanner:
 
         # Direct parse
         try:
-            return json.loads(text)
+            return cast("dict[str, Any]", json.loads(text))
         except json.JSONDecodeError:
             pass
 
@@ -934,7 +934,7 @@ class DramaPlanner:
         # Fix unescaped newlines in strings
         fixed = re.sub(r'(?<=": ")([^"]*?)\n([^"]*?)(?=")', r'\1\\n\2', fixed)
         try:
-            return json.loads(fixed)
+            return cast("dict[str, Any]", json.loads(fixed))
         except json.JSONDecodeError:
             pass
 
@@ -967,7 +967,7 @@ class DramaPlanner:
                         last_brace = i
             if last_brace > brace_start:
                 try:
-                    return json.loads(text[brace_start : last_brace + 1])
+                    return cast("dict[str, Any]", json.loads(text[brace_start : last_brace + 1]))
                 except json.JSONDecodeError:
                     pass
 
@@ -976,7 +976,7 @@ class DramaPlanner:
             for i in range(len(candidate) - 1, max(len(candidate) - 500, 0), -1):
                 if candidate[i] in ("}", "]"):
                     try:
-                        return json.loads(candidate[: i + 1])
+                        return cast("dict[str, Any]", json.loads(candidate[: i + 1]))
                     except json.JSONDecodeError:
                         continue
 

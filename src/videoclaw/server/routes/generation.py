@@ -14,7 +14,7 @@ from videoclaw.core.director import Director
 from videoclaw.core.events import event_bus
 from videoclaw.core.executor import DAGExecutor
 from videoclaw.core.planner import build_dag
-from videoclaw.core.state import ProjectState, StateManager
+from videoclaw.core.state import ProjectState, ProjectStatus, StateManager
 from videoclaw.models.llm.litellm_wrapper import LLMClient
 
 router = APIRouter()
@@ -133,6 +133,6 @@ async def _run_pipeline(
 
     except Exception:
         logger.exception("Pipeline failed for project %s", ps.project_id)
-        ps.status = "failed"
+        ps.status = ProjectStatus.FAILED
         await _state_mgr.save_async(ps)
         await event_bus.emit("project.failed", {"project_id": ps.project_id})

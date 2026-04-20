@@ -41,7 +41,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from rich.console import Console
 from rich.table import Table
@@ -686,14 +686,19 @@ class VisionAuditor:
             frame_count=len(frames),
         )})
 
-        messages = [
+        messages: list[dict[str, Any]] = [
             {"role": "system", "content": _AUDIT_SYSTEM_V2},
             {"role": "user", "content": content},
         ]
 
         llm = self._ensure_llm()
         try:
-            raw = await llm.chat(messages, model=VISION_MODEL, temperature=0.1, max_tokens=1024)
+            raw = await llm.chat(
+                cast("list[dict[str, str]]", messages),
+                model=VISION_MODEL,
+                temperature=0.1,
+                max_tokens=1024,
+            )
         except (OSError, RuntimeError, asyncio.TimeoutError, ValueError) as exc:
             logger.error("Vision API error for %s: %s", scene.scene_id, exc)
             return fatals, tolerables
@@ -1084,14 +1089,19 @@ class VisionAuditor:
             duration=duration,
         )})
 
-        messages = [
+        messages: list[dict[str, Any]] = [
             {"role": "system", "content": _AUDIT_SYSTEM_V2},
             {"role": "user", "content": content},
         ]
 
         llm = self._ensure_llm()
         try:
-            raw = await llm.chat(messages, model=VISION_MODEL, temperature=0.1, max_tokens=1024)
+            raw = await llm.chat(
+                cast("list[dict[str, str]]", messages),
+                model=VISION_MODEL,
+                temperature=0.1,
+                max_tokens=1024,
+            )
         except (OSError, RuntimeError, asyncio.TimeoutError, ValueError) as exc:
             logger.error("Vision API error for composition audit: %s", exc)
             return fatals, tolerables
