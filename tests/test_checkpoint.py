@@ -2262,6 +2262,57 @@ class TestUpdateCharactersDirEpisodeFiltered:
             _update_characters_dir(series, tmp_path / "out", episode=ep)
 
 
+class TestAutoMigrationLegacyFlatSymlinks:
+    @pytest.mark.asyncio
+    async def test_old_ep_chars_auto_migrated_on_next_checkpoint(self, tmp_path):
+        import os
+        from videoclaw.drama.checkpoint import (
+            CheckpointController,
+            CheckpointManager,
+            CheckpointStage,
+        )
+        from videoclaw.drama.models import (
+            Character,
+            DramaManager,
+            DramaScene,
+            DramaSeries,
+            Episode,
+        )
+        chars_src = tmp_path / "src"
+        chars_src.mkdir()
+        (chars_src / "ivy.png").write_bytes(b"x")
+        series = DramaSeries(title="t", series_id="abc")
+        series.characters = [
+            Character(name="Ivy", reference_image=str(chars_src / "ivy.png"))
+        ]
+        ep = Episode(number=1, title="ep1")
+        ep.scenes = [DramaScene(description="x", characters_present=["Ivy"])]
+        series.episodes = [ep]
+
+        deliverables = tmp_path / "deliv"
+        projects = tmp_path / "projects"
+        projects.mkdir()
+        legacy_ep_chars = deliverables / "t" / "ep01_ep1" / "characters"
+        legacy_ep_chars.mkdir(parents=True)
+        (legacy_ep_chars / "ivy_turnaround.png").symlink_to(chars_src / "ivy.png")
+
+        manager = CheckpointManager(base_dir=projects)
+        dm = DramaManager(base_dir=projects)
+        dm.save(series)
+        ctrl = CheckpointController(
+            series=series,
+            episode=ep,
+            manager=manager,
+            drama_manager=dm,
+            interactive=False,
+            deliverables_dir=deliverables,
+        )
+        await ctrl.checkpoint(CheckpointStage.AFTER_DESIGN)
+
+        target = os.readlink(legacy_ep_chars / "ivy_turnaround.png")
+        assert target == "../../characters/ivy_turnaround.png"
+
+
 class TestCheckpointControllerSeriesView:
     @pytest.mark.asyncio
     async def test_checkpoint_creates_series_md_after_design(self, tmp_path):
