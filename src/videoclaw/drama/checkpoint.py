@@ -546,6 +546,43 @@ def _write_series_md(series: DramaSeries, series_root: Path) -> Path:
     return path
 
 
+_SERIES_STAGE_WORK: dict[str, set[str]] = {
+    "after_design": {"chars", "scenes", "md"},
+    "after_refresh": {"chars", "scenes", "md"},
+    "after_storyboard": {"md"},
+    "after_video_tts": {"md"},
+    "after_generation": {"md"},
+    "after_compose": {"md"},
+    "after_audit": {"md"},
+}
+
+
+def build_series_view(
+    series: DramaSeries,
+    *,
+    deliverables_dir: Path,
+    projects_dir: Path,  # noqa: ARG001 — reserved for future asset resolution
+    work: set[str] | None = None,
+) -> Path:
+    """Build / refresh the series-level view at ``deliverables_dir/<slug>/``.
+
+    ``work`` is a subset of ``{"chars", "scenes", "md"}``. ``None`` = full
+    rebuild (``claw drama series-view``, ``claw drama export``, tests).
+    ``CheckpointController`` passes a stage-specific subset derived from
+    :data:`_SERIES_STAGE_WORK` to skip unnecessary I/O.
+    """
+    series_root = _series_root_for(series, deliverables_dir)
+    series_root.mkdir(parents=True, exist_ok=True)
+    todo = work if work is not None else {"chars", "scenes", "md"}
+    if "chars" in todo:
+        _update_series_characters_dir(series, series_root / "characters")
+    if "scenes" in todo:
+        _update_series_scenes_dir(series, series_root / "scenes")
+    if "md" in todo:
+        _write_series_md(series, series_root)
+    return series_root
+
+
 def _update_scenes_dir(series: DramaSeries, scenes_dir: Path) -> None:
     """Symlink scene/location reference images (景别图 / 场景参考图).
 

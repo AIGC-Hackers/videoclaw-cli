@@ -2142,3 +2142,61 @@ class TestWriteSeriesMd:
         _write_series_md(series, root)
         content = (root / "_SERIES.md").read_text()
         assert "E2" in content
+
+
+class TestBuildSeriesView:
+    def _setup(self, tmp_path):
+        from videoclaw.drama.models import (
+            Character,
+            ConsistencyManifest,
+            DramaSeries,
+            Episode,
+        )
+        ivy_src = tmp_path / "src" / "ivy.png"
+        ivy_src.parent.mkdir(parents=True)
+        ivy_src.write_bytes(b"x")
+        pool_src = tmp_path / "src" / "pool.png"
+        pool_src.write_bytes(b"y")
+        series = DramaSeries(title="t", series_id="abc")
+        series.characters = [Character(name="Ivy", reference_image=str(ivy_src))]
+        series.consistency_manifest = ConsistencyManifest(
+            scene_references={"Pool": str(pool_src)}
+        )
+        series.episodes = [Episode(number=1, title="ep1")]
+        return series, tmp_path / "deliverables", tmp_path / "projects"
+
+    def test_full_build_creates_all(self, tmp_path):
+        from videoclaw.drama.checkpoint import build_series_view
+        series, deliverables, projects = self._setup(tmp_path)
+        series_root = build_series_view(
+            series, deliverables_dir=deliverables, projects_dir=projects
+        )
+        assert (series_root / "_SERIES.md").exists()
+        assert (series_root / "characters" / "ivy_turnaround.png").is_symlink()
+        assert (series_root / "scenes" / "pool.png").is_symlink()
+
+    def test_md_only_work_skips_chars_and_scenes(self, tmp_path):
+        from videoclaw.drama.checkpoint import build_series_view
+        series, deliverables, projects = self._setup(tmp_path)
+        series_root = build_series_view(
+            series,
+            deliverables_dir=deliverables,
+            projects_dir=projects,
+            work={"md"},
+        )
+        assert (series_root / "_SERIES.md").exists()
+        assert not (series_root / "characters").exists()
+        assert not (series_root / "scenes").exists()
+
+    def test_idempotent(self, tmp_path):
+        from videoclaw.drama.checkpoint import build_series_view
+        series, deliverables, projects = self._setup(tmp_path)
+        series_root = build_series_view(
+            series, deliverables_dir=deliverables, projects_dir=projects
+        )
+        files1 = sorted(p.relative_to(series_root) for p in series_root.rglob("*"))
+        build_series_view(
+            series, deliverables_dir=deliverables, projects_dir=projects
+        )
+        files2 = sorted(p.relative_to(series_root) for p in series_root.rglob("*"))
+        assert files1 == files2
