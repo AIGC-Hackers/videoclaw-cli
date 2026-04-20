@@ -44,3 +44,11 @@ docs/deliverables/*
 !docs/deliverables/这个王妃太狂野/
 docs/plans
 .devtool/
+
+# 本地开发工具产物（不入库）
+.gsd/
+.bg-shell/
+.mcp.json
+.claude/
+docs/superpowers/notes/
+docs/superpowers/plans/
