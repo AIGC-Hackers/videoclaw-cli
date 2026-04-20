@@ -2262,6 +2262,148 @@ class TestUpdateCharactersDirEpisodeFiltered:
             _update_characters_dir(series, tmp_path / "out", episode=ep)
 
 
+class TestCheckpointControllerSeriesView:
+    @pytest.mark.asyncio
+    async def test_checkpoint_creates_series_md_after_design(self, tmp_path):
+        from videoclaw.drama.checkpoint import (
+            CheckpointController,
+            CheckpointManager,
+            CheckpointStage,
+        )
+        from videoclaw.drama.models import (
+            Character,
+            DramaManager,
+            DramaSeries,
+            Episode,
+        )
+        chars_src = tmp_path / "src"
+        chars_src.mkdir()
+        (chars_src / "ivy.png").write_bytes(b"x")
+        series = DramaSeries(title="t", series_id="abc")
+        series.characters = [
+            Character(name="Ivy", reference_image=str(chars_src / "ivy.png"))
+        ]
+        ep = Episode(number=1, title="ep1")
+        series.episodes = [ep]
+
+        deliverables = tmp_path / "deliv"
+        projects = tmp_path / "projects"
+        projects.mkdir()
+        manager = CheckpointManager(base_dir=projects)
+        dm = DramaManager(base_dir=projects)
+        dm.save(series)
+
+        ctrl = CheckpointController(
+            series=series,
+            episode=ep,
+            manager=manager,
+            drama_manager=dm,
+            interactive=False,
+            deliverables_dir=deliverables,
+        )
+        await ctrl.checkpoint(CheckpointStage.AFTER_DESIGN)
+
+        series_root = deliverables / "t"
+        assert (series_root / "_SERIES.md").exists()
+        assert (series_root / "characters" / "ivy_turnaround.png").is_symlink()
+
+    @pytest.mark.asyncio
+    async def test_after_generation_updates_md_only(self, tmp_path):
+        """after_generation maps to {'md'} — chars_dir mtime unchanged."""
+        import time
+        from videoclaw.drama.checkpoint import (
+            CheckpointController,
+            CheckpointManager,
+            CheckpointStage,
+            build_series_view,
+        )
+        from videoclaw.drama.models import (
+            Character,
+            DramaManager,
+            DramaSeries,
+            Episode,
+        )
+        chars_src = tmp_path / "src"
+        chars_src.mkdir()
+        (chars_src / "ivy.png").write_bytes(b"x")
+        series = DramaSeries(title="t", series_id="abc")
+        series.characters = [
+            Character(name="Ivy", reference_image=str(chars_src / "ivy.png"))
+        ]
+        series.episodes = [Episode(number=1, title="ep1")]
+
+        deliverables = tmp_path / "deliv"
+        projects = tmp_path / "projects"
+        projects.mkdir()
+        build_series_view(
+            series, deliverables_dir=deliverables, projects_dir=projects
+        )
+        chars_dir_mtime = (deliverables / "t" / "characters").stat().st_mtime_ns
+
+        manager = CheckpointManager(base_dir=projects)
+        dm = DramaManager(base_dir=projects)
+        dm.save(series)
+        ctrl = CheckpointController(
+            series=series,
+            episode=series.episodes[0],
+            manager=manager,
+            drama_manager=dm,
+            interactive=False,
+            deliverables_dir=deliverables,
+        )
+        time.sleep(0.05)
+        await ctrl.checkpoint(CheckpointStage.AFTER_GENERATION)
+
+        assert (
+            deliverables / "t" / "characters"
+        ).stat().st_mtime_ns == chars_dir_mtime
+
+
+class TestBuildReviewDirUsesSeriesRoot:
+    def test_ep_chars_filtered_via_build_review_dir(self, tmp_path):
+        import os
+        from videoclaw.drama.checkpoint import (
+            build_review_dir,
+            build_series_view,
+        )
+        from videoclaw.drama.models import (
+            Character,
+            DramaScene,
+            DramaSeries,
+            Episode,
+        )
+        deliverables = tmp_path / "deliv"
+        projects = tmp_path / "projects"
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "ivy.png").write_bytes(b"x")
+        (src / "ghost.png").write_bytes(b"y")
+        series = DramaSeries(title="t", series_id="abc")
+        series.characters = [
+            Character(name="Ivy", reference_image=str(src / "ivy.png")),
+            Character(name="Ghost", reference_image=str(src / "ghost.png")),
+        ]
+        ep = Episode(number=1, title="ep1")
+        ep.scenes = [
+            DramaScene(description="Ivy enters", characters_present=["Ivy"])
+        ]
+        series.episodes = [ep]
+
+        build_series_view(
+            series, deliverables_dir=deliverables, projects_dir=projects
+        )
+        review_dir = build_review_dir(
+            series, ep, deliverables_dir=deliverables, projects_dir=projects
+        )
+
+        ep_chars = review_dir / "characters"
+        assert (ep_chars / "ivy_turnaround.png").is_symlink()
+        assert os.readlink(ep_chars / "ivy_turnaround.png") == (
+            "../../characters/ivy_turnaround.png"
+        )
+        assert not (ep_chars / "ghost_turnaround.png").exists()
+
+
 class TestUpdateScenesDirEpisodeFiltered:
     def _setup(self, tmp_path):
         from videoclaw.drama.models import (

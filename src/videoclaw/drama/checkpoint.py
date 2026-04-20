@@ -300,13 +300,30 @@ def build_review_dir(
 
     Returns the review directory path.
     """
+    # Series-root must be populated BEFORE ep-filtered symlinks resolve
+    # (Audit A9). Full rebuild here — cheap, idempotent, keeps the
+    # function self-contained for direct callers like drama_export.
+    series_root = build_series_view(
+        series, deliverables_dir=deliverables_dir, projects_dir=projects_dir
+    )
+
     review_dir = review_dir_for_episode(series, episode, base_dir=deliverables_dir)
     review_dir.mkdir(parents=True, exist_ok=True)
 
     series_dir = projects_dir / "dramas" / series.series_id
 
-    _update_characters_dir(series, review_dir / "characters")
-    _update_scenes_dir(series, review_dir / "scenes")
+    _update_characters_dir(
+        series,
+        review_dir / "characters",
+        episode=episode,
+        series_root=series_root,
+    )
+    _update_scenes_dir(
+        series,
+        review_dir / "scenes",
+        episode=episode,
+        series_root=series_root,
+    )
     _update_videos_dir(series, episode, review_dir / "videos", projects_dir)
     _update_audio_dir(series, episode, review_dir / "audio")
     _update_audit_dir(episode, review_dir / "audit", series_dir)
@@ -1356,7 +1373,18 @@ class CheckpointController:
         # stale "pending" scenes even after successful generation.
         self._sync_scene_assets_from_project_state()
 
-        # 2. Update cumulative review directory (additive, not destructive)
+        # 2. Refresh the series-level view BEFORE the episode review dir so
+        # ep-filtered symlinks resolve against an already-populated series
+        # root (Audit A9). Work set is stage-scoped per _SERIES_STAGE_WORK
+        # so `after_generation` etc. don't needlessly re-symlink assets.
+        build_series_view(
+            self.series,
+            deliverables_dir=self._deliverables_dir,
+            projects_dir=self.manager.base_dir,
+            work=_SERIES_STAGE_WORK.get(stage.value, {"md"}),
+        )
+
+        # 3. Update cumulative review directory (additive, not destructive)
         review_dir, assets = self._update_review_dir(stage)
 
         # 2. Build snapshot
@@ -1562,10 +1590,22 @@ class CheckpointController:
     # stay byte-for-byte identical.
 
     def _update_characters(self, chars_dir: Path) -> None:
-        _update_characters_dir(self.series, chars_dir)
+        series_root = _series_root_for(self.series, self._deliverables_dir)
+        _update_characters_dir(
+            self.series,
+            chars_dir,
+            episode=self.episode,
+            series_root=series_root,
+        )
 
     def _update_scenes(self, scenes_dir: Path) -> None:
-        _update_scenes_dir(self.series, scenes_dir)
+        series_root = _series_root_for(self.series, self._deliverables_dir)
+        _update_scenes_dir(
+            self.series,
+            scenes_dir,
+            episode=self.episode,
+            series_root=series_root,
+        )
 
     def _update_videos(self, videos_dir: Path, projects_dir: Path) -> None:
         _update_videos_dir(self.series, self.episode, videos_dir, projects_dir)
