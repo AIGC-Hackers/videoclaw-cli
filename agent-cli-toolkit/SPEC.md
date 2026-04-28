@@ -121,18 +121,23 @@ Also produce a short `docs/how-the-toolkit-was-validated.md` pointing to VERIFIE
 - Built wheel in `examples/hello-agent-cli/dist/*.whl`.
 - Built PyInstaller binary (at least for the current platform).
 - Working Dockerfile (buildable; does not need to be pushed).
+- `SHA256SUMS` over every artifact (R028).
+- `update-manifest.json` matching `agent-cli-update/v1` schema (R028).
+- `.github/workflows/release.yml` from `templates/release.yml.tmpl` — tag-driven build of wheel + PyInstaller binary + checksums + manifest, uploaded to GitHub Releases (R027).
 
-Plus `docs/packaging-cookbook.md` documenting the three distribution paths (wheel / binary / Docker) with pros/cons and when to pick each.
+Plus `docs/packaging-cookbook.md` documenting four distribution paths (wheel / binary / Docker / GitHub Releases) with pros/cons and when to pick each, plus a "Checksums + update manifest" section explaining how agents auto-discover the latest version via the manifest URL (R027, R028).
 
 ### S08 — Deployment Recipe
 
-**Out**: `docs/deploy-to-machine.md`.
+**Out**: `docs/deploy-to-machine.md` plus `templates/install.sh.tmpl` and `templates/.github/ISSUE_TEMPLATE/{distribution-bug,install-failure}.yml.tmpl`. `examples/hello-agent-cli/install.sh` is the verified copy of the install script.
 
-**Content**: three deployment targets — developer laptop (pip install), remote Linux box (wheel from PyPI or binary scp), Docker host (pull + run). For each, show:
+**Content**: four deployment targets — developer laptop (pip install), remote Linux box (wheel from PyPI or binary scp), Docker host (pull + run), and one-liner public installer (`curl -fsSL .../install.sh | sh`, R029). For each, show:
 
 - How an OTHER agent would install & call this CLI (so the CLI becomes a composable building block in a larger agent system).
 - Systemd unit skeleton (optional) if running `mcp-server` as a long-lived service.
 - Health check command.
+
+Plus a "Public issue tracking for distribution concerns" section (R030) describing the structured `distribution-bug` and `install-failure` issue templates and how wrapped-CLI maintainers route distribution failures away from feature bugs.
 
 ### S09 — Videoclaw Blueprint
 
