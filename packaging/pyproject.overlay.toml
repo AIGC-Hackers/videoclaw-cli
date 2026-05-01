@@ -1,0 +1,41 @@
+# pyproject overlay — applied at build time without rewriting pyproject.toml.
+#
+# Usage::
+#
+#   uv build --no-sources \
+#     --config-file packaging/pyproject.overlay.toml
+#
+# Overlays a hatchling source-exclude block so the wheel + sdist do NOT ship:
+#   - tests/                 (test suite, not consumer-facing)
+#   - docs/deliverables/     (per-episode produced artifacts)
+#   - projects/              (runtime project data)
+#   - models_cache/          (downloaded checkpoints)
+#   - examples/              (example scripts referenced by docs)
+#   - .gsd/                  (gsd workflow database, dev-only)
+#   - mcp-shim/              (sibling distributable, ships its own wheel)
+#   - packaging/             (this packaging recipe — meta-only)
+#
+# Note: this file does NOT alter pyproject.toml. Per the blueprint write-scope
+# lock the in-tree pyproject.toml stays unchanged. CI invokes uv build with
+# --config-file pointing here. Local `make install` keeps using the in-tree
+# pyproject.toml unchanged.
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/videoclaw"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "tests/",
+    "docs/deliverables/",
+    "projects/",
+    "models_cache/",
+    "examples/",
+    ".gsd/",
+    "mcp-shim/",
+    "packaging/",
+    ".bg-shell/",
+    ".mcp.json",
+    ".pytest_cache/",
+    ".ruff_cache/",
+    ".mypy_cache/",
+]
