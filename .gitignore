@@ -53,3 +53,6 @@ docs/plans
 .claude/
 docs/superpowers/notes/
 docs/superpowers/plans/
+# external e2e test data (drama scripts are user content)
+tests-external/data/*
+!tests-external/data/.gitkeep
