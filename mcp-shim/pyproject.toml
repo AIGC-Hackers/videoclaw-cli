@@ -16,6 +16,12 @@ dependencies = [
     "videoclaw",
 ]
 
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
 [project.scripts]
 videoclaw-mcp-server = "mcp_server:main"
 
@@ -25,3 +31,7 @@ include = ["mcp_server.py"]
 
 [tool.uv.sources]
 videoclaw = { path = "..", editable = true }
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
