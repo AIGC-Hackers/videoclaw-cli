@@ -1,11 +1,16 @@
-# pyproject overlay — applied at build time without rewriting pyproject.toml.
+# pyproject overlay — sdist source-exclude block kept available for future
+# sdist publishing. NOT applied to wheel builds: the in-tree pyproject.toml
+# already uses `[tool.hatch.build.targets.wheel] packages = ["src/videoclaw"]`
+# which whitelists the wheel cleanly (verified: no tests/, deliverables/,
+# projects/, models_cache/, .gsd/, mcp-shim/, packaging/ in the produced
+# wheel).
 #
-# Usage::
+# When a future milestone adds `uv build --sdist` to dist-verify.sh, this
+# block should be merged into a temporary copy of pyproject.toml using a
+# build wrapper (since hatchling reads exclusions only from pyproject.toml,
+# not from a separate config file). Until then this file is reference-only.
 #
-#   uv build --no-sources \
-#     --config-file packaging/pyproject.overlay.toml
-#
-# Overlays a hatchling source-exclude block so the wheel + sdist do NOT ship:
+# Excluded paths cover what the sdist would otherwise ship:
 #   - tests/                 (test suite, not consumer-facing)
 #   - docs/deliverables/     (per-episode produced artifacts)
 #   - projects/              (runtime project data)
