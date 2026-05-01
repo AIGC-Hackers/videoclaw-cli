@@ -43,6 +43,7 @@ RUN pip install --user --no-cache-dir /tmp/*.whl && rm /tmp/*.whl
 ENV PATH=/home/claw/.local/bin:$PATH
 
 # Default to printing the version — orchestrators override with `claw drama …`
-# or `claw --json doctor` for health checks.
+# or `claw --json doctor` for health checks. Note: `version` is a subcommand,
+# not an eager `--version` flag (P2 migration — see packaging/AUDIT.md).
 ENTRYPOINT ["claw"]
-CMD ["--version"]
+CMD ["version"]

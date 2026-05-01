@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # dist-verify.sh — build wheel + PyInstaller binary + Docker image and
-# verify each artifact runs `claw --version`. Single exit code: 0 if every
+# verify each artifact runs `claw version`. Single exit code: 0 if every
 # enabled stage passes, non-zero on first failure.
 #
 # Stages can be skipped via env (useful when a host lacks docker or
@@ -29,9 +29,13 @@ step() { printf '\n=== %s ===\n' "$1"; }
 
 # ---------- wheel ----------
 if [ "$STAGE_WHEEL" = "1" ]; then
-    step "wheel — uv build (overlay-applied)"
-    uv build --wheel --out-dir "$dist_dir" \
-        --config-file packaging/pyproject.overlay.toml
+    step "wheel — uv build"
+    # Wheel is already clean: pyproject.toml's [tool.hatch.build.targets.wheel]
+    # packages = ["src/videoclaw"] whitelist excludes tests/, docs/deliverables/,
+    # projects/, models_cache/, .gsd/, mcp-shim/, packaging/ from the wheel.
+    # packaging/pyproject.overlay.toml stays available for future sdist builds
+    # (see its docstring) but is not applied here — wheel-only ships.
+    uv build --wheel --out-dir "$dist_dir"
     whl=$(ls -1t "$dist_dir"/*.whl 2>/dev/null | head -n 1)
     [ -n "$whl" ] || { echo "FAIL: no wheel produced"; exit 1; }
     echo "wheel: $whl"
@@ -40,7 +44,7 @@ if [ "$STAGE_WHEEL" = "1" ]; then
     venv="$(mktemp -d)/venv"
     python3 -m venv "$venv"
     "$venv/bin/pip" install --quiet "$whl"
-    "$venv/bin/claw" --version
+    "$venv/bin/claw" version
 fi
 
 # ---------- PyInstaller binary ----------
@@ -54,7 +58,7 @@ if [ "$STAGE_BIN" = "1" ]; then
             --workpath "$dist_dir/build" --distpath "$dist_dir"
         bin="$dist_dir/claw"
         [ -x "$bin" ] || { echo "FAIL: dist/claw missing or not executable"; exit 1; }
-        "$bin" --version
+        "$bin" version
     fi
 fi
 
@@ -65,7 +69,7 @@ if [ "$STAGE_DOCKER" = "1" ]; then
     else
         step "Docker — multi-stage build"
         docker build -t videoclaw-cli -f packaging/Dockerfile .
-        docker run --rm videoclaw-cli --version
+        docker run --rm videoclaw-cli version
     fi
 fi
 
