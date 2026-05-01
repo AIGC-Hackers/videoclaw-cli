@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "videoclaw-mcp-shim"
+version = "0.1.0"
+description = "MCP / ACP shim for videoclaw — exposes read-only drama and model-registry tools to other agents over stdio."
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "videoclaw" }]
+license = { text = "Proprietary" }
+
+dependencies = [
+    "fastmcp==2.12.5",
+    "videoclaw",
+]
+
+[project.scripts]
+videoclaw-mcp-server = "mcp_server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = []
+include = ["mcp_server.py"]
+
+[tool.uv.sources]
+videoclaw = { path = "..", editable = true }
