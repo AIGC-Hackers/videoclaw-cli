@@ -1,15 +1,50 @@
 # videoclaw — Agents quickstart
 
 This branch (`feat/agent-cli-toolkit`) packages **videoclaw** as an
-**agent-callable CLI**: any code agent (Claude Code, openclaw, custom
-orchestrators) can install it, discover its surface, and invoke its
-read-only tools over MCP — without touching `src/videoclaw/`.
+**agent-callable CLI**. Two integration paths:
+
+1. **CLI-first (universal, recommended)** — `claw` on PATH + `--json`
+   envelope. Any code agent (Claude Code, Cursor, Cline, Codex,
+   openclaw, custom orchestrators) calls it via its built-in shell
+   tool. No protocol setup, no per-agent registration.
+2. **MCP (optional)** — `videoclaw-mcp-server` over stdio for agents
+   that prefer structured tool discovery. Same source of truth, just
+   a thinner read-only surface.
+
+The CLI is the universal contract; MCP is a convenience.
+
+## Two-command bootstrap
+
+Everything below assumes one of these paths got `claw` on PATH:
+
+```bash
+# Path A — Python-aware host (uv tool install, post-v0.1.0 release):
+curl -fsSL https://raw.githubusercontent.com/AIGC-Hackers/videoclaw-cli/main/install.sh | sh
+
+# Path B — local source checkout right now:
+uv pip install -e .
+```
+
+Then configure API keys::
+
+```bash
+bash packaging/setup.sh        # interactive wizard, writes ~/.config/videoclaw/.env
+```
+
+That's it. The wizard prints a `videoclaw-setup/v1` JSON envelope on
+stdout so an orchestrator can confirm success programmatically.
+
+The full distribution / install / setup / test / release plan lives at
+**`packaging/DISTRIBUTION-PLAN.md`**.
 
 ## What ships on this branch
 
 | Path | What it is | Who consumes it |
 |---|---|---|
-| `mcp-shim/` | FastMCP stdio server exposing 4 read-only tools. | Any MCP client (Claude Code, openclaw, IDEs). |
+| `install.sh` | Public one-line installer (uv-tool / PyInstaller binary fallback, SHA256 verify, JSON envelope on stdout). | Any host bootstrapping `claw`. |
+| `packaging/setup.sh` | "Continue with CLI setup" interactive wizard (writes `.env`, runs `claw doctor`, prints `videoclaw-setup/v1` JSON). | Any host post-install. |
+| `packaging/DISTRIBUTION-PLAN.md` | The 8-section plan (channels / contract / setup / test / release / friction checklist). | Reviewers + ops. |
+| `mcp-shim/` | FastMCP stdio server exposing 4 read-only tools. Optional. | MCP-preferring clients (Claude Code, IDEs). |
 | `packaging/AUDIT.md` | Four-bucket audit of the existing CLI surface + ship-vs-skip matrix. | Reviewers. |
 | `packaging/Dockerfile` | Multi-stage CLI image, parallel to the FastAPI image at the repo root. | Container hosts. |
 | `packaging/claw.spec` + `packaging/_entry.py` | PyInstaller spec for a no-Python-required binary. | Hosts without Python. |
