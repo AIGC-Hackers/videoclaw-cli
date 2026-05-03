@@ -25,14 +25,88 @@
 
 ## Install
 
+Pick the path that matches your environment. All four resolve to the same
+`claw` binary on `PATH`.
+
+### A. One-line installer (recommended, no Python required)
+
+> Available once `v0.1.0` is tagged and the GitHub Release is published.
+> CI is set up; see [`.github/workflows/release.yml`](.github/workflows/release.yml).
+
 ```bash
-git clone https://github.com/moose-lab/videoclaw.git
-cd videoclaw
-uv sync            # Python 3.12+, installs deps + creates .venv
-uv run claw --help # Done. No activation needed.
+curl -fsSL https://raw.githubusercontent.com/AIGC-Hackers/videoclaw-cli/main/install.sh | sh
 ```
 
-> Or activate the venv to use `claw` directly: `source .venv/bin/activate && claw --help`
+The script auto-detects your OS / arch (darwin/arm64 + linux/x86_64
+supported), prefers `uv tool install videoclaw` when `uv` is on `PATH`,
+otherwise downloads the matching PyInstaller binary from GitHub Releases,
+verifies the SHA256 against the release manifest, and drops the binary at
+`$HOME/.local/bin/claw`. Refuses to install as root. Last stdout line is a
+machine-readable `videoclaw-install/v1` JSON envelope for orchestrator
+parsing.
+
+### B. From source (Python ≥ 3.12, works today)
+
+```bash
+git clone https://github.com/AIGC-Hackers/videoclaw-cli.git videoclaw
+cd videoclaw
+uv sync            # installs deps + creates .venv
+uv run claw --help # done. No activation needed.
+```
+
+> Or activate the venv: `source .venv/bin/activate && claw --help`.
+
+### C. Docker (CLI image)
+
+```bash
+docker build -t videoclaw-cli -f packaging/Dockerfile .
+docker run --rm \
+  -v $HOME/.config/videoclaw:/home/claw/.config/videoclaw \
+  videoclaw-cli version
+```
+
+The CLI image at `packaging/Dockerfile` ships parallel to the existing
+FastAPI image at the repo root (`/Dockerfile` + `docker-compose.yml`,
+`uvicorn :8000` for the optional `server` extra) — they don't replace
+each other.
+
+### D. Wheel from GitHub Releases (post-v0.1.0)
+
+```bash
+pip install https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.0/videoclaw-0.1.0-py3-none-any.whl
+```
+
+Useful for air-gapped or pinned environments. The release also ships an
+`update-manifest.json` (schema `agent-cli-update/v1`) listing every
+artifact's `sha256` + `size` + `download_url` for automated update flows.
+
+### Continue with CLI setup
+
+After installing via any channel above, run the interactive wizard to
+configure API keys:
+
+```bash
+bash packaging/setup.sh    # interactive
+bash packaging/setup.sh --quiet    # CI / re-run mode (keeps existing values)
+```
+
+The wizard:
+
+1. Detects an existing config (`$XDG_CONFIG_HOME/videoclaw/.env` →
+   `~/.config/videoclaw/.env` → repo-local `.env` when run from a
+   videoclaw checkout).
+2. Prompts for `VIDEOCLAW_EVOLINK_API_KEY`, `VIDEOCLAW_ARK_API_KEY`,
+   `VIDEOCLAW_DEFAULT_VIDEO_MODEL`, `VIDEOCLAW_PROJECTS_DIR`. Empty
+   answers keep existing values (idempotent re-runs).
+3. Writes the file with `chmod 600` and runs `claw --json doctor`.
+4. Last stdout line is a machine-readable `videoclaw-setup/v1` JSON
+   envelope so an orchestrator can parse the outcome.
+
+Sample envelope:
+
+```json
+{"schema":"videoclaw-setup/v1","ok":true,"config_path":"/Users/.../.config/videoclaw/.env","version":"0.1.0","doctor_passed":true,"error":null,"next_steps":["claw drama new \"<synopsis>\" --title <title> --lang zh"]}
+```
 
 ---
 
@@ -56,36 +130,76 @@ But making a *real* video still means:
 ## Quick Start
 
 ```bash
-# Clone and install (requires Python 3.12+ and uv)
-git clone https://github.com/moose-lab/videoclaw.git
+# Install from source (one of the four channels above; this is the
+# zero-friction path until v0.1.0 is published).
+git clone https://github.com/AIGC-Hackers/videoclaw-cli.git videoclaw
 cd videoclaw
 uv sync                          # Install dependencies + create .venv
 
-# Option A: Use uv run (recommended, no activation needed)
-uv run claw --help
-uv run claw doctor               # Check system readiness
+# Configure API keys (Evolink LLM gateway, Seedance video, model defaults).
+bash packaging/setup.sh          # interactive wizard
 
-# Option B: Activate virtualenv, then use claw directly
-source .venv/bin/activate
-claw --help
-claw doctor
+# Sanity check.
+uv run claw version              # → "VideoClaw v0.1.0"
+uv run claw --json doctor        # → {"ok": true, ...}
 
-# Generate a video from a single prompt
+# Generate a video from a single prompt.
 uv run claw generate "A 30-second product intro for a smart watch, cinematic style"
 
-# Or run individual stages independently
+# Or run individual stages independently.
 uv run claw video "A cat riding a skateboard" -d 5 -o cat.mp4
 uv run claw image "Character portrait" --provider gemini -o portrait.png
 uv run claw tts "Hello world" --lang en -o hello.mp3
 uv run claw storyboard "Product unboxing" -d 30 -o shots.json
 
-# Agent-friendly: JSON output for programmatic use
+# Agent-friendly: JSON output for programmatic use.
 uv run claw -j video "sunset over ocean" -o sunset.mp4
 # → {"ok": true, "command": "video", "data": {"path": "...", "cost_usd": 0.05}, "error": null}
 
-# Or run a YAML pipeline
+# Or run a YAML pipeline.
 uv run claw flow run examples/product-promo.yaml
 ```
+
+### For code agents (Claude Code, Cursor, Cline, Codex, openclaw, …)
+
+Two integration paths — the CLI is universal; MCP is optional convenience.
+
+**Path 1 — CLI via Bash tool (universal)**: every code agent has a shell
+tool. After `claw` is on `PATH`, the agent calls it directly:
+
+```bash
+claw drama new "<synopsis>" --title "<title>" --lang zh
+claw drama plan <series_id>
+claw drama design-scenes <series_id>
+claw drama run <series_id> --max-shots 3
+```
+
+Every command supports `--json` so the agent gets a predictable envelope
+to parse. Exit codes follow the standard contract: `0` ok / `1` runtime /
+`2` usage / `3` auth / `4` blocked.
+
+**Path 2 — MCP shim (read-only discovery, optional)**: for clients that
+prefer structured tool listings:
+
+```bash
+uv pip install -e mcp-shim/
+
+# Register with Claude Code (~/.claude/settings.json):
+# {
+#   "mcpServers": {
+#     "videoclaw": {"command": "videoclaw-mcp-server"}
+#   }
+# }
+```
+
+Exposes 4 read-only tools (`list_drama_series`, `get_drama_series`,
+`list_video_models`, `get_videoclaw_version`). Mutating ops still go
+through `claw drama …` via the agent's Bash tool — the shim
+intentionally doesn't claim the `claw drama` namespace.
+
+See [`AGENTS.md`](AGENTS.md) for the full integration shape and
+[`packaging/DISTRIBUTION-PLAN.md`](packaging/DISTRIBUTION-PLAN.md) for
+the channel matrix, contract, and release process.
 
 ## Features
 
@@ -355,33 +469,49 @@ videoclaw/
 
 ## Configuration
 
+The simplest path is `bash packaging/setup.sh` (see "Continue with CLI
+setup" above) — it writes the four canonical keys to your config
+`.env` with `chmod 600`. To configure manually:
+
 ```bash
-# Set environment variables or use .env file
-export OPENAI_API_KEY=sk-...
-export ANTHROPIC_API_KEY=sk-ant-...
+# Either export them, or write a `.env` (project-local or
+# ~/.config/videoclaw/.env — the wizard prefers the latter on fresh hosts).
+export VIDEOCLAW_EVOLINK_API_KEY=sk-...   # required (LLM gateway)
+export VIDEOCLAW_ARK_API_KEY=...          # required for real video gen
 ```
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `OPENAI_API_KEY` | For Sora/GPT | OpenAI API key |
-| `ANTHROPIC_API_KEY` | For Claude | Anthropic API key |
-| `VIDEOCLAW_DEFAULT_LLM` | No | Default LLM (default: `gpt-4o`) |
-| `VIDEOCLAW_DEFAULT_VIDEO_MODEL` | No | Default video model (default: `mock`) |
-| `VIDEOCLAW_PROJECTS_DIR` | No | Project storage path (default: `./projects`) |
-| `VIDEOCLAW_BUDGET_DEFAULT_USD` | No | Default budget cap (default: `10.0`) |
+| `VIDEOCLAW_EVOLINK_API_KEY` | Yes | Evolink LLM gateway — routes Claude / GPT / Kimi / DeepSeek through one key. |
+| `VIDEOCLAW_ARK_API_KEY` | For Seedance | Seedance 2.0 video API. |
+| `VIDEOCLAW_DEFAULT_LLM` | No | Default LLM (default: `kimi-k2`). |
+| `VIDEOCLAW_DEFAULT_VIDEO_MODEL` | No | Default video model (default: `seedance-2.0`; use `mock` for dry-run / CI). |
+| `VIDEOCLAW_PROJECTS_DIR` | No | Project storage path (default: `./projects`). |
+| `VIDEOCLAW_BUDGET_DEFAULT_USD` | No | Default budget cap (default: `10.0`). |
+| `VIDEOCLAW_KLING_*` / `VIDEOCLAW_MINIMAX_API_KEY` / `VIDEOCLAW_BYTEPLUS_*` / `VIDEOCLAW_WAVESPEED_API_KEY` | Optional | Alternative video adapters (Kling / MiniMax / Seedance via BytePlus / WaveSpeed). |
+| `VIDEOCLAW_ANTHROPIC_API_KEY` / `VIDEOCLAW_MOONSHOT_API_KEY` / `VIDEOCLAW_GOOGLE_API_KEY` | Optional | Direct LLM keys (used as fallback when Evolink doesn't route the requested model). |
+
+`claw --json doctor` reads these and reports per-key health; the
+`videoclaw-setup/v1` envelope from `setup.sh` summarizes the same in one
+line.
 
 ## Development
 
 ```bash
-git clone https://github.com/moose-lab/videoclaw.git
+git clone https://github.com/AIGC-Hackers/videoclaw-cli.git videoclaw
 cd videoclaw
 uv sync --all-extras          # Install all deps including dev/server
 # or: make dev
 
-uv run pytest tests/ -v       # Run tests
-uv run ruff check src/ tests/ # Lint
+uv run pytest tests/ -v                       # Internal unit/integration tests
+uv run pytest mcp-shim/tests/ -v              # MCP shim — single-point + protocol
+uv run pytest tests-external/ -v              # External agent-callable e2e (free tiers)
+uv run ruff check src/ tests/                 # Lint
 # or: make test / make lint
 ```
+
+For the full external matrix (LLM-driven plan / design + real video gen
+for the first 3 shots), see [`tests-external/README.md`](tests-external/README.md).
 
 ## Roadmap
 
