@@ -199,7 +199,15 @@ jobs:
         # The agent-cli.yaml validator is for the deployment manifest, not
         # update-manifest. Keep it as a sanity check; not blocking.
 
+      - name: Upload release directory as workflow artifact (dry-run only)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-dryrun
+          path: release/*
+
       - name: Create GitHub Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
