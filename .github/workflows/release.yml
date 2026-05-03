@@ -85,11 +85,17 @@ jobs:
       - name: Set up Python 3.12
         run: uv python install 3.12
 
-      - name: Install package + PyInstaller
-        run: uv pip install --system -e ".[dev]" pyinstaller
+      - name: Install package + PyInstaller into venv
+        run: |
+          uv venv --python 3.12
+          uv pip install -e ".[dev]" pyinstaller
+        # `--system` would target the runner's externally-managed Python
+        # (PEP 668 — brew python@3.14 on macos-14, /usr on ubuntu-latest)
+        # and fail with "externally managed". Explicit venv from
+        # uv-installed 3.12 avoids both system Pythons.
 
       - name: Build binary
-        run: pyinstaller packaging/claw.spec --clean --noconfirm --distpath dist
+        run: uv run pyinstaller packaging/claw.spec --clean --noconfirm --distpath dist
 
       - name: Rename binary
         run: |
