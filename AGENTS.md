@@ -1,92 +1,185 @@
 # videoclaw — Agents quickstart
 
-This branch (`feat/agent-cli-toolkit`) packages **videoclaw** as an
-**agent-callable CLI**. Two integration paths:
+`videoclaw` ships with a CLI (`claw`) and a set of markdown skills.
+Coding agents drive the CLI through their built-in shell tool; the
+skills (`videoclaw-workflow`, `videoclaw-drama-setup`,
+`videoclaw-models`, `videoclaw-checkpoint`, `videoclaw-troubleshoot`)
+teach the agent *when* and *how* to call which command.
 
-1. **CLI-first (universal, recommended)** — `claw` on PATH + `--json`
-   envelope. Any code agent (Claude Code, Cursor, Cline, Codex,
-   openclaw, custom orchestrators) calls it via its built-in shell
-   tool. No protocol setup, no per-agent registration.
-2. **MCP (optional)** — `videoclaw-mcp-server` over stdio for agents
-   that prefer structured tool discovery. Same source of truth, just
-   a thinner read-only surface.
+**Three integration paths**, in order of friction:
 
-The CLI is the universal contract; MCP is a convenience.
+1. **CLI + skills (recommended)** — `claw setup` detects which coding
+   agents are installed and copies skills into each. The agent loads
+   skills automatically on next start and triggers them by user
+   intent (e.g. "use videoclaw to make a drama").
+2. **CLI-only** — any code agent with a Bash tool calls `claw …`
+   directly. Predictable `--json` envelope; standard exit codes
+   `0/1/2/3/4`.
+3. **MCP shim (optional, secondary)** — `videoclaw-mcp-server` over
+   stdio for clients that prefer structured tool discovery. 4
+   read-only tools; mutating ops still go through `claw`.
+
+The CLI + skills path is the universal contract. The deployment
+manifest at `packaging/agent-cli.yaml` is **informational** —
+primary discovery is via skills.
 
 ## Two-command bootstrap
 
-Everything below assumes one of these paths got `claw` on PATH:
-
 ```bash
-# Path A — Python-aware host (uv tool install, post-v0.1.0 release):
+# 1. Install claw + skills (post-v0.1.0 release):
 curl -fsSL https://raw.githubusercontent.com/AIGC-Hackers/videoclaw-cli/main/install.sh | sh
+claw setup
 
-# Path B — local source checkout right now:
-uv pip install -e .
-```
-
-Then configure API keys::
-
-```bash
+# 2. Configure API keys:
 bash packaging/setup.sh        # interactive wizard, writes ~/.config/videoclaw/.env
 ```
 
-That's it. The wizard prints a `videoclaw-setup/v1` JSON envelope on
-stdout so an orchestrator can confirm success programmatically.
+Until v0.1.0 is on PyPI, install from a wheel URL:
 
-The full distribution / install / setup / test / release plan lives at
-**`packaging/DISTRIBUTION-PLAN.md`**.
+```bash
+uvx --from https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.0/videoclaw-0.1.0-py3-none-any.whl videoclaw setup
+```
 
-## What ships on this branch
+Or from local source (works today):
 
-| Path | What it is | Who consumes it |
-|---|---|---|
-| `install.sh` | Public one-line installer (uv-tool / PyInstaller binary fallback, SHA256 verify, JSON envelope on stdout). | Any host bootstrapping `claw`. |
-| `packaging/setup.sh` | "Continue with CLI setup" interactive wizard (writes `.env`, runs `claw doctor`, prints `videoclaw-setup/v1` JSON). | Any host post-install. |
-| `packaging/DISTRIBUTION-PLAN.md` | The 8-section plan (channels / contract / setup / test / release / friction checklist). | Reviewers + ops. |
-| `mcp-shim/` | FastMCP stdio server exposing 4 read-only tools. Optional. | MCP-preferring clients (Claude Code, IDEs). |
-| `packaging/AUDIT.md` | Four-bucket audit of the existing CLI surface + ship-vs-skip matrix. | Reviewers. |
-| `packaging/Dockerfile` | Multi-stage CLI image, parallel to the FastAPI image at the repo root. | Container hosts. |
-| `packaging/claw.spec` + `packaging/_entry.py` | PyInstaller spec for a no-Python-required binary. | Hosts without Python. |
-| `packaging/pyproject.overlay.toml` | Hatchling source-exclude for future sdist publishing. | Reference only — wheel is already clean. |
-| `packaging/dist-verify.sh` | Builds wheel + binary + image; smoke-tests `claw version`. | CI / local dev. |
-| `packaging/agent-cli.yaml` | `agent-cli/v1` deployment manifest. | Orchestrators auto-discovering videoclaw. |
-| `packaging/manifest-validate.py` | Schema validator for the manifest above. | CI / local dev. |
-| `packaging/envelope_shim.md` | Design note for the future `agent-cli/v1` envelope wrapper. | Future milestone. |
+```bash
+uv pip install -e .
+uv run claw setup
+```
 
-The work is split into the toolkit's P0 / P1 / P2 buckets:
+## Per-agent quickstart
 
-- **P0 (delivered)** — MCP shim with read-only tools. Unblocks agent interop today.
-- **P1 (delivered)** — Distribution recipe (wheel + PyInstaller + Docker) and the manifest.
-- **P2 (deferred)** — `claw mcp-server` / `claw acp` subcommands, XDG migration with `CLAW_*` env aliasing, eager `--version` flag, the envelope wrapper. All require `src/videoclaw/` edits and are out of scope for this branch.
+### Claude Code
+
+```bash
+# 1. Install (one-time)
+uvx --from <wheel-url> videoclaw setup
+# → installs videoclaw-* skills into ~/.claude/skills/
+
+# 2. Verify
+claw --json doctor
+# Exit 0 = ok; exit 3 = run `bash packaging/setup.sh` to configure keys
+
+# 3. Drive from Claude Code
+# In a Claude Code conversation, say:
+#   "Use videoclaw to import examples/script.md as a drama and run the first 3 shots"
+# The videoclaw-workflow skill activates and runs:
+#   claw drama import …  →  claw drama plan …  →  claw drama design-* …
+#   →  claw drama run … --max-shots 3  →  claw drama audit …
+```
+
+### OpenClaw
+
+```bash
+# 1. Install (one-time)
+uvx --from <wheel-url> videoclaw setup
+# → installs videoclaw-* skills as videoclaw-workflow-0.1.0/, etc.
+#   into ~/.openclaw-autoclaw/skills/ (versioned naming convention)
+
+# 2. Verify
+claw --json doctor
+
+# 3. Drive from OpenClaw
+# OpenClaw loads skills by name + version; reference them as:
+#   /videoclaw-workflow
+# in your orchestration prompts.
+```
+
+### Codex
+
+```bash
+# 1. Install (one-time)
+uvx --from <wheel-url> videoclaw setup
+# → installs videoclaw-* skills into ~/.codex/skills/
+
+# 2. Verify
+claw --json doctor
+
+# 3. Drive from Codex
+# Codex picks up skills automatically. The videoclaw-workflow skill
+# activates on intents matching its description ("make a drama",
+# "build a TikTok video drama"). All Bash invocations of `claw …`
+# work directly without the skill too.
+```
+
+### Cursor (manual install)
+
+Cursor doesn't have a `~/.cursor/skills/` convention; `claw setup`
+skips it. To use videoclaw skills with Cursor, either:
+
+```bash
+# Option A — copy the skills body into Cursor Rules (project-wide):
+cat $(uv run python -c "from importlib.resources import files; print(files('videoclaw') / '_skills' / 'videoclaw-workflow' / 'SKILL.md')") \
+    >> .cursorrules
+
+# Option B — drive the CLI directly via Cursor's terminal; the
+# skills aren't auto-loaded, but `claw drama …` works as-is.
+```
+
+Treat Cursor as a **CLI-only** agent until skills support lands
+upstream.
+
+### Gemini CLI / other agents (deferred)
+
+Gemini CLI's extension system is recognized but not yet auto-targeted
+by `claw setup`. For now, treat as CLI-only (every command works via
+the shell tool). Skill-injection support tracked for a future
+milestone.
+
+Any agent with a Bash tool can call `claw` directly — see the
+"How code agents use videoclaw" section below.
 
 ## How code agents use videoclaw
 
-### From Claude Code (or any MCP-compatible client)
+### CLI + Bash tool (universal)
 
 ```bash
-# 1. Install the shim (editable from this repo).
-uv pip install -e mcp-shim/
-
-# 2. Register the server with your MCP client. Example for Claude Code's
-#    ~/.claude/settings.json:
-#    {
-#      "mcpServers": {
-#        "videoclaw": {
-#          "command": "videoclaw-mcp-server",
-#          "args": []
-#        }
-#      }
-#    }
-
-# 3. The agent now sees four tools via tools/list:
-#    - list_drama_series
-#    - get_drama_series(series_id)
-#    - list_video_models
-#    - get_videoclaw_version
+claw drama new "<synopsis>" --title "<title>" --lang zh
+claw drama plan <series_id>
+claw drama design-characters <series_id>
+claw drama design-scenes <series_id>
+claw drama run <series_id> --max-shots 3
+claw drama audit <series_id>
+claw drama export <series_id>
 ```
 
-### From openclaw / custom orchestrators
+Every command supports `--json` for predictable parsing. Exit codes:
+
+| Code | Meaning | Agent action |
+|---|---|---|
+| 0 | OK | continue |
+| 1 | Runtime error | retry once, then escalate |
+| 2 | Usage error | re-read `claw <cmd> --help` |
+| 3 | Auth needed | run `bash packaging/setup.sh` |
+| 4 | Blocked | read envelope `error` field |
+
+`claw doctor` returns 3 specifically when `VIDEOCLAW_EVOLINK_API_KEY`
+is missing — coding agents can branch on `$? == 3` to auto-trigger
+configuration.
+
+### MCP shim (optional, secondary)
+
+For clients that prefer MCP:
+
+```bash
+uv pip install -e mcp-shim/
+
+# Register with Claude Code (~/.claude/settings.json):
+# {
+#   "mcpServers": {
+#     "videoclaw": {"command": "videoclaw-mcp-server"}
+#   }
+# }
+
+# 4 read-only tools exposed via tools/list:
+#   list_drama_series / get_drama_series / list_video_models / get_videoclaw_version
+```
+
+Mutating ops (`drama run`, `drama design-*`, etc.) still go through
+the CLI via the agent's Bash tool — the shim deliberately doesn't
+claim the `claw drama` namespace.
+
+### From custom orchestrators (Python over stdio)
 
 ```python
 import json, asyncio
@@ -99,34 +192,26 @@ async def call_tool(name: str, arguments: dict) -> dict:
     )
     init = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": {"protocolVersion": "2024-11-05", "capabilities": {},
-                       "clientInfo": {"name": "openclaw", "version": "0.1"}}}
+                       "clientInfo": {"name": "myorch", "version": "0.1"}}}
     notif = {"jsonrpc": "2.0", "method": "notifications/initialized"}
     call = {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
             "params": {"name": name, "arguments": arguments}}
     for msg in (init, notif, call):
         proc.stdin.write((json.dumps(msg) + "\n").encode())
     await proc.stdin.drain()
-    _ = await proc.stdout.readline()  # initialize response
-    raw = await proc.stdout.readline()  # tools/call response
+    _ = await proc.stdout.readline()
+    raw = await proc.stdout.readline()
     proc.terminate()
     return json.loads(raw.decode())
 
 
-# orchestrator code:
 result = asyncio.run(call_tool("list_drama_series", {}))
-print(result["result"]["content"])
 ```
-
-The orchestrator never has to know videoclaw's internal Python API —
-`videoclaw-mcp-server` is the boundary.
 
 ### As a containerized batch tool
 
 ```bash
-# Build the CLI image (separate from the existing FastAPI image at /Dockerfile).
 docker build -t videoclaw-cli -f packaging/Dockerfile .
-
-# Drive videoclaw from another container.
 docker run --rm \
   -v $HOME/.config/videoclaw:/home/claw/.config/videoclaw \
   videoclaw-cli drama list --json
@@ -136,37 +221,23 @@ docker run --rm \
 
 ```bash
 uv pip install pyinstaller
-bash packaging/dist-verify.sh   # builds wheel + binary
-
+bash packaging/dist-verify.sh   # builds wheel + binary + docker
 ./dist/claw version
 ./dist/claw drama list --json
 ```
 
 ## External tests
 
-Two layers, both under `mcp-shim/tests/`:
-
-- **Single-point** (`test_tools_unit.py`, 5 tests) — each tool exercised
-  individually via fastmcp's in-process `Client(mcp)`. Verifies the tool is
-  registered, returns the expected shape, is read-only, and surfaces missing
-  inputs as errors instead of crashing.
-- **Integration** (`test_mcp_protocol.py`, 2 tests) — spawn
-  `videoclaw-mcp-server` as a real subprocess, send the standard MCP opening
-  sequence (`initialize` → `notifications/initialized` → request) over stdio,
-  parse the response. Mirrors what Claude Code / openclaw actually do.
-
-Run both layers:
-
 ```bash
-uv pip install -e "mcp-shim/[test]"
-uv run pytest mcp-shim/tests/ -v
-# 7 passed
+uv run pytest tests-external/ -v          # 9-stage e2e (T1-T9)
+uv run pytest mcp-shim/tests/ -v          # MCP single-point + protocol
+uv run pytest tests/test_setup_skills.py tests/test_doctor_exit_codes.py -v
+                                           # claw setup + doctor exit codes
 ```
 
-The integration tests use **Pattern 2b** from the toolkit's S05
-known-limitations notes — `asyncio.create_subprocess_exec + readline +
-terminate` — to avoid the stdin-EOF deadlock that hits fastmcp 2.12.5 with
-`subprocess.run(input=..., capture_output=True)`.
+T1-T4 + T7 in `tests-external/` always run; T5/T6/T8/T9 (LLM and
+real video) are gated by `E2E_REAL_LLM=1` / `E2E_REAL_VIDEO=1` env
+vars. T9 (Seedance first-3-shots) requires real `VIDEOCLAW_ARK_API_KEY`.
 
 ## Manifest discovery
 
@@ -175,24 +246,27 @@ python packaging/manifest-validate.py packaging/agent-cli.yaml
 # VALID: packaging/agent-cli.yaml conforms to agent-cli/v1
 ```
 
-The manifest declares:
-- `name: videoclaw` / `binary: claw` / `version: 0.1.0`.
-- 5 commands (`version`, `--json doctor`, `--json info`, `drama`, `model list`).
-- `mcp:` block listing the 4 read-only tools and the install hint.
-- `health_check`: `{binary} --json doctor` expecting exit 0 + `.ok == true`.
-- `distribution`: wheel / pyinstaller / docker artifact patterns.
+`agent-cli.yaml` is **informational** — orchestrators that already
+read manifests can auto-wire videoclaw, but the primary path is now
+skills + CLI. The manifest declares: 5 commands, MCP tool list,
+exit_codes (0-4), distribution channels, health_check.
 
-Orchestrators that read `agent-cli/v1` manifests can auto-wire videoclaw
-without scraping `--help`.
+```bash
+python packaging/skills-validate.py skills/
+# VALID: 5 skill(s) under skills conform (version 0.1.0)
+```
 
-## What stays untouched
+## Write-scope (M002)
 
-Per the videoclaw-packaging blueprint's **write-scope lock**:
+`feat/agent-cli-toolkit` is reviewable as a mostly-additive diff.
+The two src/ files touched are:
 
-- `src/videoclaw/**` — zero edits.
-- `tests/**` (the existing pytest suite) — zero edits.
-- `pyproject.toml` (in-tree) — zero edits.
-- `Dockerfile` (the existing FastAPI image) — zero edits.
+- `src/videoclaw/cli/setup.py` — new file, implements `claw setup`.
+- `src/videoclaw/cli/doctor.py` — small change (~10 lines): adds
+  Evolink key check + `typer.Exit(code=3)` when required keys
+  missing, per the agent-cli exit-code contract.
 
-All new artifacts live under `packaging/`, `mcp-shim/`, or this top-level
-`AGENTS.md`. The branch is reviewable as one purely additive diff.
+Plus one import line in `src/videoclaw/cli/__init__.py` to register
+the new command. Everything else lands under `skills/`, `packaging/`,
+`mcp-shim/`, `install.sh`, `docs/`, `.github/`, `README.md`,
+`AGENTS.md`, `RELEASE_NOTES.md`.

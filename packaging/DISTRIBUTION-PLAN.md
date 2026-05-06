@@ -182,28 +182,64 @@ small, isolated PR that does not require src/videoclaw/ edits.
 
 ## 8. Friction-elimination checklist
 
-Status as of today:
+Status as of M002 HEAD (2026-05-06):
 
 - [x] Stable `claw` entry point (`pyproject.toml:51-52`).
 - [x] `--json` envelope on every command (`src/videoclaw/cli/_output.py`).
-- [x] Exit codes 0/1/2/3/4 (documented in `agent-cli.yaml`).
+- [x] Exit codes 0/1/2/3/4 — documented in `agent-cli.yaml`,
+      enforced by `claw doctor` (3 = auth needed when Evolink key
+      missing, 1 = other runtime failures, 0 = healthy). The CLI
+      uses 0/1/2/3; code 4 reserved for `install.sh` policy refusals.
 - [x] Wheel builds clean (no leakage of tests / projects / models_cache /
-      .gsd / mcp-shim / packaging).
-- [x] `agent-cli.yaml` manifest + validator.
-- [x] `mcp-shim/` for MCP-preferring agents.
-- [x] `tests-external/` proves Claude-Code-callable end-to-end.
-- [ ] **`packaging/setup.sh` first-run wizard** — this milestone.
-- [ ] **`install.sh` at repo root** — this milestone.
-- [ ] **`.github/workflows/release.yml`** — next milestone.
+      .gsd / mcp-shim / packaging / docs/deliverables).
+- [x] Wheel bundles `skills/` as `videoclaw/_skills/` via hatch
+      `force-include`; `claw setup` resolves them via
+      `importlib.resources` at runtime.
+- [x] `agent-cli.yaml` manifest + validator (informational; primary
+      discovery is via skills).
+- [x] `packaging/skills-validate.py` — schema validator for the
+      `skills/` directory.
+- [x] `mcp-shim/` for MCP-preferring agents (secondary path).
+- [x] `tests-external/` proves Claude-Code-callable end-to-end (9
+      stages T1-T9; T5/T6/T8/T9 gated by env vars).
+- [x] **`packaging/setup.sh` first-run wizard** (M001).
+- [x] **`install.sh` at repo root** (M001).
+- [x] **`.github/workflows/release.yml`** — tag-driven release CI
+      with explicit `dry_run` input on `workflow_dispatch`
+      (`workflow_dispatch` is structurally dry-run regardless).
+- [x] **`skills/` directory + 5 SKILL.md** — `videoclaw-workflow`,
+      `videoclaw-drama-setup`, `videoclaw-models`,
+      `videoclaw-checkpoint`, `videoclaw-troubleshoot`. Total ~28KB
+      across 6 files (skills + references/).
+- [x] **`claw setup` command** — detects Claude Code / Codex /
+      OpenClaw, copies skills with per-agent naming (flat vs
+      versioned). Custom envelope schema `videoclaw-setup-skills/v1`.
+- [x] **README restructured to google/agents-cli template** —
+      Hero / Get Started / Skills / CLI Commands / FAQ. Per-agent
+      quickstart blocks for Claude Code / OpenClaw / Codex / Cursor.
+- [x] **AGENTS.md updated** with per-agent integration paths and
+      exit-code branching pattern.
+- [x] **RELEASE_NOTES.md** with the 0.1.0 entry.
 - [ ] **GitHub Releases v0.1.0** with binary + checksums + manifest —
-      depends on release.yml.
-- [ ] XDG config dir (`~/.config/videoclaw/`) by default — P2 in the
-      blueprint, deferred (would need src/videoclaw/ edits).
+      ready when M002 verification (T17) passes; not pushed in this
+      milestone per spec scope (release-ready, not released).
+- [ ] PyPI publish under name `videoclaw` — deferred; intermediate
+      install path uses `uvx --from <github-release-wheel-url>
+      videoclaw setup`.
+- [ ] XDG config dir (`~/.config/videoclaw/`) by default — P2,
+      deferred (would need broader `src/videoclaw/config.py` edits).
 - [ ] Eager `--version/-V` flag — P2, deferred.
-- [ ] `agent-cli/v1` envelope schema (with nested error) — P2, deferred.
+- [ ] `agent-cli/v1` envelope schema with nested error — P2, deferred
+      (current envelope `{ok, version, command, data, error}` works).
+- [ ] Cursor / Gemini CLI auto-install in `claw setup` — Cursor
+      handled via manual README instructions; Gemini CLI extension
+      mechanism deferred to a future milestone.
 
-When every box above is ticked, a fresh agent in any environment goes
-from zero to a working drama pipeline in two commands::
+When every M002 box above is ticked, a fresh agent in any environment
+goes from zero to a working drama pipeline in two commands::
 
     curl -fsSL .../install.sh | sh
-    claw setup       # or: bash $(claw --packaging-root)/setup.sh
+    claw setup       # installs skills into Claude Code / Codex / OpenClaw
+
+Followed by API-key configuration (`bash packaging/setup.sh`) and the
+first drama (`claw drama new "<synopsis>"`).

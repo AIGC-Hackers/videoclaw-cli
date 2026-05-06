@@ -56,7 +56,49 @@ Full channel matrix: [`packaging/DISTRIBUTION-PLAN.md`](packaging/DISTRIBUTION-P
 
 Launch [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [OpenClaw](https://github.com/AIGC-Hackers/openclaw), [Codex](https://github.com/openai/codex), or any coding agent of your choice. The skills installed by `claw setup` activate automatically when you mention drama production.
 
-> Per-agent quickstart blocks (Claude Code / OpenClaw / Codex / Cursor) — to be expanded in M002 task T11. For now: any agent with a Bash tool can call `claw …` directly.
+<details>
+<summary><b>Claude Code</b> — auto-loaded</summary>
+
+```bash
+uvx --from <wheel-url> videoclaw setup    # writes ~/.claude/skills/videoclaw-*
+claw --json doctor                        # exit 0 = ready
+```
+In a Claude Code conversation, say *"use videoclaw to make a drama"* — the `videoclaw-workflow` skill activates and drives the pipeline.
+</details>
+
+<details>
+<summary><b>OpenClaw</b> — versioned skill names</summary>
+
+```bash
+uvx --from <wheel-url> videoclaw setup    # → ~/.openclaw-autoclaw/skills/videoclaw-workflow-0.1.0/
+claw --json doctor
+```
+Reference skills as `/videoclaw-workflow` in your orchestration prompts.
+</details>
+
+<details>
+<summary><b>Codex</b> — auto-loaded</summary>
+
+```bash
+uvx --from <wheel-url> videoclaw setup    # writes ~/.codex/skills/videoclaw-*
+claw --json doctor
+```
+Codex picks up skills automatically based on the `description` trigger phrases in each skill's frontmatter.
+</details>
+
+<details>
+<summary><b>Cursor</b> — manual install</summary>
+
+Cursor doesn't have a skills directory; `claw setup` skips it. Manual options:
+```bash
+# Append the workflow skill to your Cursor Rules:
+cat $(uv run python -c "from importlib.resources import files; print(files('videoclaw') / '_skills' / 'videoclaw-workflow' / 'SKILL.md')") >> .cursorrules
+
+# Or just drive the CLI directly via Cursor's terminal — every command works.
+```
+</details>
+
+For Gemini CLI, Cline, and other agents: any agent with a Bash tool can call `claw …` directly — see [`AGENTS.md`](AGENTS.md) for per-agent details.
 
 ### 3. Make your first drama
 
