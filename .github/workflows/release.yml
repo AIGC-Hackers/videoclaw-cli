@@ -22,6 +22,16 @@ on:
       version:
         description: "Version to build (without leading v), e.g. 0.1.0"
         required: true
+      dry_run:
+        description: "Dry-run mode (default true on dispatch — never creates a real Release)"
+        type: boolean
+        required: false
+        default: true
+    # Note: workflow_dispatch is structurally a dry-run regardless of the
+    # `dry_run` input — the "Create GitHub Release" step below only fires on
+    # `push` of a v* tag (see its `if:` clause). The input exists so callers
+    # can be explicit, e.g. `gh workflow run release.yml -f version=0.1.0
+    # -f dry_run=true` per the M002 spec verification.
 
 permissions:
   contents: write   # needed to create the GitHub Release
