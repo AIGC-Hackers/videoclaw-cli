@@ -22,7 +22,7 @@
 
 ---
 
-**Works seamlessly with:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) &nbsp;•&nbsp; [OpenClaw](https://github.com/AIGC-Hackers/openclaw) &nbsp;•&nbsp; [Codex](https://github.com/openai/codex) &nbsp;•&nbsp; [Cursor](https://cursor.sh) &nbsp;•&nbsp; [Gemini CLI](https://github.com/google-gemini/gemini-cli) &nbsp;•&nbsp; *and any other coding agent.*
+**Works seamlessly with:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) &nbsp;•&nbsp; [Gemini CLI](https://github.com/google-gemini/gemini-cli) &nbsp;•&nbsp; [Codex](https://github.com/openai/codex) &nbsp;•&nbsp; [Cursor](https://cursor.sh) &nbsp;•&nbsp; [Antigravity](https://antigravity.dev/) &nbsp;•&nbsp; [OpenClaw](https://github.com/AIGC-Hackers/openclaw) &nbsp;•&nbsp; [Windsurf](https://codeium.com/windsurf) &nbsp;•&nbsp; [Continue](https://continue.dev) &nbsp;•&nbsp; *and 40+ more via [`npx skills`](https://github.com/vercel-labs/skills).*
 
 VideoClaw gives your coding agent the **CLI commands and skills** to plan, design, generate, audit, and export AI dramas — so you don't have to learn every adapter and prompt convention yourself.
 
@@ -33,12 +33,20 @@ VideoClaw gives your coding agent the **CLI commands and skills** to plan, desig
 ### 1. Install the CLI + skills
 
 ```bash
-uvx --from https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.0/videoclaw-0.1.0-py3-none-any.whl videoclaw setup
+uvx --from https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.1/videoclaw-0.1.1-py3-none-any.whl videoclaw setup
 ```
 
 `claw setup` detects which coding agents are present and copies the
-`videoclaw-*` skills into each. After v0.1.0 lands on PyPI you'll be
-able to use the shorter form `uvx videoclaw setup`.
+`videoclaw-*` skills into each. After videoclaw lands on PyPI you'll
+be able to use the shorter form `uvx videoclaw setup`.
+
+**How agent coverage works:** when Node.js / `npx` is on `PATH`, `claw
+setup` delegates to [`vercel-labs/skills`](https://github.com/vercel-labs/skills)
+(51+ supported agents incl. Gemini CLI, Antigravity, Windsurf, Cline,
+Continue, Trae, Kiro CLI, ...). When `npx` is missing, it falls back
+to a built-in Python installer covering Claude Code / Codex / OpenClaw.
+Use `claw setup --no-npx` to force the fallback explicitly, or
+`--copy` to copy files instead of symlinking.
 
 <details>
 <summary>Other install paths</summary>
@@ -46,7 +54,7 @@ able to use the shorter form `uvx videoclaw setup`.
 - **From source (Python ≥ 3.12)** — `git clone … && uv sync && uv run claw --help`
 - **One-line installer (post-release)** — `curl -fsSL https://raw.githubusercontent.com/AIGC-Hackers/videoclaw-cli/main/install.sh | sh`
 - **Docker** — `docker build -t videoclaw-cli -f packaging/Dockerfile . && docker run --rm videoclaw-cli version`
-- **Wheel from GitHub Releases (post-v0.1.0)** — `pip install https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.0/videoclaw-0.1.0-py3-none-any.whl`
+- **Wheel from GitHub Releases** — `pip install https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.1/videoclaw-0.1.1-py3-none-any.whl`
 
 Full channel matrix: [`packaging/DISTRIBUTION-PLAN.md`](packaging/DISTRIBUTION-PLAN.md).
 
@@ -70,7 +78,7 @@ In a Claude Code conversation, say *"use videoclaw to make a drama"* — the `vi
 <summary><b>OpenClaw</b> — versioned skill names</summary>
 
 ```bash
-uvx --from <wheel-url> videoclaw setup    # → ~/.openclaw-autoclaw/skills/videoclaw-workflow-0.1.0/
+uvx --from <wheel-url> videoclaw setup    # → ~/.openclaw-autoclaw/skills/videoclaw-workflow-0.1.1/
 claw --json doctor
 ```
 Reference skills as `/videoclaw-workflow` in your orchestration prompts.
@@ -98,7 +106,7 @@ cat $(uv run python -c "from importlib.resources import files; print(files('vide
 ```
 </details>
 
-For Gemini CLI, Cline, and other agents: any agent with a Bash tool can call `claw …` directly — see [`AGENTS.md`](AGENTS.md) for per-agent details.
+For **Gemini CLI / Antigravity / Windsurf / Cline / Continue** and 40+ more: `claw setup` auto-installs via `npx skills` — no per-agent steps required. See [`AGENTS.md`](AGENTS.md) for the full per-agent layout.
 
 ### 3. Make your first drama
 
@@ -152,7 +160,7 @@ claw drama run <series_id> --max-shots 3                # generate first 3 shots
 
 ```bash
 # Top-level
-claw setup [--dry-run] [--agent <name>] [--uninstall]
+claw setup [--dry-run] [--uninstall] [--copy] [--no-npx] [--agent <name>]
 claw version
 claw doctor [--json]
 claw info [--json]

@@ -26,7 +26,7 @@ primary discovery is via skills.
 ## Two-command bootstrap
 
 ```bash
-# 1. Install claw + skills (post-v0.1.0 release):
+# 1. Install claw + skills:
 curl -fsSL https://raw.githubusercontent.com/AIGC-Hackers/videoclaw-cli/main/install.sh | sh
 claw setup
 
@@ -34,10 +34,10 @@ claw setup
 bash packaging/setup.sh        # interactive wizard, writes ~/.config/videoclaw/.env
 ```
 
-Until v0.1.0 is on PyPI, install from a wheel URL:
+Until videoclaw is on PyPI, install from a wheel URL:
 
 ```bash
-uvx --from https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.0/videoclaw-0.1.0-py3-none-any.whl videoclaw setup
+uvx --from https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.1/videoclaw-0.1.1-py3-none-any.whl videoclaw setup
 ```
 
 Or from local source (works today):
@@ -48,6 +48,14 @@ uv run claw setup
 ```
 
 ## Per-agent quickstart
+
+> **How `claw setup` resolves agents:** when `npx` is on `PATH`, it
+> delegates to [`vercel-labs/skills`](https://github.com/vercel-labs/skills)
+> (51+ supported agents incl. Gemini CLI, Antigravity, Windsurf, Cline,
+> Continue, Trae, Kiro CLI). When `npx` is missing, it falls back to a
+> built-in Python installer covering Claude Code, Codex, OpenClaw. The
+> 4 detailed blocks below describe the python-fallback layout; the npx
+> path uses each agent's own per-tool conventions automatically.
 
 ### Claude Code
 
@@ -73,7 +81,7 @@ claw --json doctor
 ```bash
 # 1. Install (one-time)
 uvx --from <wheel-url> videoclaw setup
-# → installs videoclaw-* skills as videoclaw-workflow-0.1.0/, etc.
+# → installs videoclaw-* skills as videoclaw-workflow-0.1.1/, etc.
 #   into ~/.openclaw-autoclaw/skills/ (versioned naming convention)
 
 # 2. Verify
@@ -119,14 +127,46 @@ cat $(uv run python -c "from importlib.resources import files; print(files('vide
 Treat Cursor as a **CLI-only** agent until skills support lands
 upstream.
 
-### Gemini CLI / other agents (deferred)
+### Gemini CLI
 
-Gemini CLI's extension system is recognized but not yet auto-targeted
-by `claw setup`. For now, treat as CLI-only (every command works via
-the shell tool). Skill-injection support tracked for a future
-milestone.
+```bash
+# 1. Install (one-time) — auto-installed via npx skills
+uvx --from <wheel-url> videoclaw setup
+# → installs videoclaw-* skills into ~/.gemini/skills/ (npx skills path)
 
-Any agent with a Bash tool can call `claw` directly — see the
+# 2. Verify
+claw --json doctor
+ls ~/.gemini/skills/videoclaw-workflow/SKILL.md
+
+# 3. Drive from Gemini CLI
+# Skills auto-activate on description-trigger phrases; or call the CLI
+# directly via Gemini CLI's shell tool.
+```
+
+### Antigravity
+
+```bash
+# 1. Install (one-time) — auto-installed via npx skills
+uvx --from <wheel-url> videoclaw setup
+# → installs videoclaw-* skills into ~/.antigravity/skills/
+
+# 2. Verify
+claw --json doctor
+
+# 3. Drive from Antigravity
+# Same description-trigger model as Claude Code / Codex; the
+# videoclaw-workflow skill activates on drama production intents.
+```
+
+### Other 45+ agents (Cline, Continue, Trae, Kiro CLI, Windsurf, ...)
+
+When `npx` is available, `claw setup` delegates to
+[`vercel-labs/skills`](https://github.com/vercel-labs/skills), which
+ships per-agent path tables for 51+ coding agents. Run `claw setup`
+and any installed agent listed in the `skills` registry will receive
+the videoclaw skill bundle automatically.
+
+Any agent with a Bash tool can also call `claw` directly — see the
 "How code agents use videoclaw" section below.
 
 ## How code agents use videoclaw
@@ -253,20 +293,23 @@ exit_codes (0-4), distribution channels, health_check.
 
 ```bash
 python packaging/skills-validate.py skills/
-# VALID: 5 skill(s) under skills conform (version 0.1.0)
+# VALID: 5 skill(s) under skills conform (version 0.1.1)
 ```
 
-## Write-scope (M002)
+## Write-scope (M002 + M003)
 
 `feat/agent-cli-toolkit` is reviewable as a mostly-additive diff.
-The two src/ files touched are:
+The src/ files touched are:
 
-- `src/videoclaw/cli/setup.py` — new file, implements `claw setup`.
+- `src/videoclaw/cli/setup.py` — implements `claw setup`. M002 added
+  the python-fallback installer (~150 LOC). M003 adds `_try_npx_skills`
+  delegation + `--copy` / `--no-npx` flags + `installer` envelope
+  field (~120 LOC additive; M002 helpers untouched).
 - `src/videoclaw/cli/doctor.py` — small change (~10 lines): adds
   Evolink key check + `typer.Exit(code=3)` when required keys
   missing, per the agent-cli exit-code contract.
 
 Plus one import line in `src/videoclaw/cli/__init__.py` to register
-the new command. Everything else lands under `skills/`, `packaging/`,
-`mcp-shim/`, `install.sh`, `docs/`, `.github/`, `README.md`,
-`AGENTS.md`, `RELEASE_NOTES.md`.
+the `claw setup` command. Everything else lands under `skills/`,
+`packaging/`, `mcp-shim/`, `install.sh`, `docs/`, `.github/`,
+`README.md`, `AGENTS.md`, `RELEASE_NOTES.md`.
