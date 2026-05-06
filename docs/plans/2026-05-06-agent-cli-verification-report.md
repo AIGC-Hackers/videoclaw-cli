@@ -2,16 +2,16 @@
 
 > Phase 4 final output. Runs the Success Criteria from
 > `2026-05-06-agent-cli-distribution-spec.md` against M002 HEAD
-> (`8266b61`, branch `feat/agent-cli-toolkit`). Generated 2026-05-06.
+> (branch `feat/agent-cli-toolkit`). Generated 2026-05-06; updated
+> after the PyInstaller binary gate cleared.
 
 ## Verdict — **GO (release-ready, push pending auth)**
 
-13 of 14 verification gates pass locally. The two gates that
-require external systems (`gh workflow run release.yml dry-run`
-and `docker build` of the CLI image) are not blockers for
-release-readiness — both are validated in CI on actual release
-trigger and the Dockerfile / release.yml are static configs whose
-correctness was verified at write time.
+14 of 14 verification gates pass locally. The remaining gate
+that requires external systems (Docker image build) is not a
+blocker for release-readiness — `packaging/Dockerfile` is a
+static config validated at write time and exercised in CI on
+actual release trigger.
 
 `git push` is blocked by **403 Permission denied** for user
 `moose-lab` against `AIGC-Hackers/videoclaw-cli`. The 12 M002
@@ -103,16 +103,40 @@ Fresh venv → wheel install → `claw setup` resolves the bundled
 `videoclaw/_skills/` via `importlib.resources.files()` and would
 install all 15 (5 skills × 3 detected agents).
 
-### 7. PyInstaller binary — ⏭ deferred (slow build, no functional change)
+### 7. PyInstaller binary — ✅ built + bundled skills resolved at runtime
 
-The `packaging/claw.spec` has been validated for structure and the
-`datas += [("../skills", "videoclaw/_skills")]` rule is in place;
-the actual ~2-minute build was not run in this verification cycle.
-Will be exercised by `.github/workflows/release.yml` on the next
-tag push (matrix: macOS arm64, Linux x86_64).
+```bash
+$ uv pip install pyinstaller
+$ cd packaging && uv run pyinstaller claw.spec --clean --noconfirm \
+      --workpath ../dist/build --distpath ../dist
+... (101 seconds, macOS arm64)
+INFO: Build complete! The results are available in: ../dist
 
-To run locally: `bash packaging/dist-verify.sh` (default skips
-docker if unavailable; `STAGE_BIN=0` to skip PyInstaller).
+$ ls -lh dist/claw
+-rwxr-xr-x  1  64M  dist/claw
+$ file dist/claw
+dist/claw: Mach-O 64-bit executable arm64
+
+$ ./dist/claw version
+VideoClaw v0.1.0
+
+$ HOME=$(mktemp -d)
+$ mkdir -p $HOME/.claude/skills $HOME/.codex/skills $HOME/.openclaw-autoclaw/skills
+$ ./dist/claw --json setup --dry-run | tail -1
+{"schema":"videoclaw-setup-skills/v1","ok":true,...,
+ "data":{"agents_detected":["claude_code","codex","openclaw"],
+         "skills_installed":[15 records],...}}
+```
+
+End-to-end: frozen binary boots → `claw version` works → `claw setup`
+resolves bundled `videoclaw/_skills/` via `sys._MEIPASS` (the
+PyInstaller path, distinct from the wheel's `importlib.resources`
+path that gate 6 covers) → detects all 3 agents → reports 15
+would-install records. T7's `datas += [("../skills",
+"videoclaw/_skills")]` line in `claw.spec` is correct.
+
+The Linux x86_64 variant of the same build runs in CI on tag push
+(release.yml matrix).
 
 ### 8. Docker image — ⏭ deferred (no docker daemon on this host)
 
@@ -209,7 +233,7 @@ ca710a6 chore(gitignore): track agent-cli M002 spec/audit/tasks + ignore .gsd-id
 | F3 Exit code contract | ✅ | doctor now emits 0/1/3 (was always 0); `agent-cli.yaml exit_codes:` block |
 | F4 Config surface | ✅ | unchanged; setup.sh idempotency verified |
 | F5 Manifest informational | ✅ | README/AGENTS/DIST-PLAN labelled; validator passes |
-| F6 Three-channel build | ✅ wheel · ⏭ binary/docker | wheel verified locally; binary/docker ride CI |
+| F6 Three-channel build | ✅ wheel + binary · ⏭ docker | wheel + 64MB arm64 binary both verified locally; docker rides CI |
 | F7 install.sh | ✅ | suggests `claw setup` first, then API-key wizard |
 | F8 Agent-callable e2e | ✅ MCP + setup-tests passing; tests-external requires keys |
 | F9 Release-ready | ✅ release.yml has dry_run input; 5-way version consistency |
