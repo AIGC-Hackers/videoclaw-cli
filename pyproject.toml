@@ -73,6 +73,13 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/videoclaw"]
 
+# Bundle the top-level `skills/` directory into the wheel as
+# videoclaw/_skills/ so `claw setup` can install them via
+# importlib.resources at runtime, even from a uv-tool / wheel install
+# where the original repo isn't present.
+[tool.hatch.build.targets.wheel.force-include]
+"skills" = "videoclaw/_skills"
+
 [tool.ruff]
 target-version = "py312"
 line-length = 100

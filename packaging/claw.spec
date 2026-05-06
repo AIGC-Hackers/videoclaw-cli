@@ -32,6 +32,11 @@ hidden = (
 
 datas = collect_data_files("videoclaw") + collect_data_files("litellm")
 
+# Bundle skills/ from the repo root into the binary as videoclaw/_skills/
+# so `claw setup` can find them at sys._MEIPASS at runtime — same logical
+# path as the wheel's `force-include` rule in pyproject.toml.
+datas += [("../skills", "videoclaw/_skills")]
+
 # Don't bundle the heavy local-inference path.
 excludes = [
     "torch",
