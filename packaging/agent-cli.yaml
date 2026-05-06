@@ -57,6 +57,27 @@ health_check:
   expect_stdout_path: ".ok"
   expect_stdout_value: true
 
+# --- Exit codes (agent-cli contract) ---
+# Coding agents branch on `$?` after invoking `claw …` without parsing
+# stderr. The five-code contract is stable; videoclaw uses 0/1/2/3 from
+# the CLI itself and reserves 4 for install.sh-style policy refusals.
+#
+#   0 = ok                 — command succeeded
+#   1 = runtime error      — transient or unknown failure (retry, then escalate)
+#   2 = usage error        — bad CLI arguments (typer.BadParameter raises this)
+#   3 = auth needed        — required API key missing/invalid (run `bash setup.sh`)
+#   4 = blocked            — refused to run (root install, unsupported OS/arch);
+#                            currently used only by install.sh, reserved by the CLI
+#
+# `claw doctor` emits 3 when VIDEOCLAW_EVOLINK_API_KEY is missing, 1 when
+# any other check fails, 0 when everything is healthy.
+exit_codes:
+  ok: 0
+  runtime_error: 1
+  usage_error: 2
+  auth_needed: 3
+  blocked: 4
+
 # --- Optional MCP transport (sibling shim) ---
 mcp:
   transport: stdio
