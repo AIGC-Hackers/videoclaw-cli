@@ -20,6 +20,7 @@ import videoclaw.cli.generate
 import videoclaw.cli.info
 import videoclaw.cli.model
 import videoclaw.cli.project
+import videoclaw.cli.setup  # `claw setup` -- skills installer (M002)
 import videoclaw.cli.stage
 import videoclaw.cli.template
 from videoclaw.cli._app import app
