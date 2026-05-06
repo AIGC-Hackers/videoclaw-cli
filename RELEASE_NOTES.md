@@ -4,6 +4,72 @@ All notable changes to videoclaw are documented in this file. Format
 follows the google/agents-cli style — `## [<version>] - YYYY-MM-DD`
 with grouped bullets.
 
+## [0.1.1] - 2026-05-07
+
+Hybrid `claw setup` — delegates to the [`vercel-labs/skills`](https://github.com/vercel-labs/skills)
+ecosystem CLI when Node.js is available, falls back to the built-in
+Python installer when not. Unlocks 51+ coding agents (Gemini CLI,
+Antigravity, Windsurf, Cline, Continue, Trae, Kiro CLI, ...) without
+us shipping per-agent path tables.
+
+### Features
+
+- **`claw setup` now tries `npx skills@1.5.5` first.** When `npx` is
+  on `PATH` and the bundled `_skills/` directory is resolvable, it
+  invokes `npx -y skills@1.5.5 add <local-skills-path> -g --all -y`
+  so every agent the `skills` CLI knows about (51+) receives the
+  bundle in one pass. No GitHub round-trip, no network dependency —
+  the local skills root (the same one bundled in the wheel) is what
+  gets installed.
+- **`--no-npx` flag** — forces the M002 python-fallback installer
+  (Claude Code / Codex / OpenClaw only). Useful for offline hosts,
+  CI environments without Node, or testing the fallback path.
+- **`--copy` flag** — passes `--copy` to `npx skills add`, which
+  copies files instead of symlinking. Use on filesystems without
+  symlink support (e.g., some Windows / WSL setups).
+- **Envelope `data.installer` field** — every `claw setup --json`
+  result now includes `installer: "npx-skills"` or
+  `"python-fallback"` so orchestrators can dispatch on which path
+  ran. Schema name unchanged (`videoclaw-setup-skills/v1`); this
+  is an additive field.
+
+### Behavior
+
+- When neither npx nor any python-fallback agent is detected,
+  `next_steps` now suggests installing Node.js to unlock the wider
+  agent set, in addition to the existing per-agent install hints.
+- `--agent <id>` continues to target one python-fallback agent and
+  now implies `--no-npx` (since the npx path installs to all
+  detected agents at once).
+
+### Documentation
+
+- README "Works seamlessly with" line expanded to call out
+  Antigravity / Gemini CLI / Windsurf / Continue alongside the
+  M002 set, with a link to the `vercel-labs/skills` registry for
+  the long tail.
+- `AGENTS.md` "Per-agent quickstart" section gains Gemini CLI and
+  Antigravity blocks; the deferred-Gemini block is removed. New
+  top-of-section note documents the npx-vs-fallback resolution
+  order.
+
+### Tests
+
+- `tests/test_setup_skills.py` grows from 11 → 16 tests. New cases
+  cover `_try_npx_skills` falling back when `npx` is absent, the
+  exact subprocess command shape, the `--copy` flag, the `--no-npx`
+  flag bypassing delegation, and the `installer` envelope field.
+  All existing tests continue to pass on the python-fallback path.
+
+### Compatibility
+
+- No breaking changes. M002 fallback path (Claude Code / Codex /
+  OpenClaw) preserved byte-for-byte; default behavior on hosts
+  without Node is unchanged.
+- Default behavior on Node-equipped hosts now installs to *more*
+  agents (whichever the `skills` CLI detects) — pass `--no-npx`
+  to opt back into the M002 narrow target list.
+
 ## [0.1.0] - 2026-05-06 (pending)
 
 First public release. Packages videoclaw as a distributable
