@@ -160,7 +160,9 @@ def test_setup_command_dry_run_envelope(
     out = get_output()
     out.json_mode = True
     try:
-        _skills_setup.setup(agent=None, dry_run=True, uninstall=False)
+        _skills_setup.setup(
+            agent=None, dry_run=True, uninstall=False, copy_mode=False, no_npx=True
+        )
     finally:
         out.json_mode = False
     captured = capsys.readouterr()
@@ -169,6 +171,7 @@ def test_setup_command_dry_run_envelope(
     assert envelope["schema"] == "videoclaw-setup-skills/v1"
     assert envelope["ok"] is True
     assert envelope["command"] == "setup"
+    assert envelope["data"]["installer"] == "python-fallback"
     assert "agents_detected" in envelope["data"]
     assert set(envelope["data"]["agents_detected"]) == {"claude_code", "codex", "openclaw"}
     # Dry-run should not have written anything
@@ -194,13 +197,17 @@ def test_setup_command_install_then_idempotent(
     out.json_mode = True
     try:
         # First run -- creates everything
-        _skills_setup.setup(agent=None, dry_run=False, uninstall=False)
+        _skills_setup.setup(
+            agent=None, dry_run=False, uninstall=False, copy_mode=False, no_npx=True
+        )
         first = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
         assert len(first["data"]["skills_installed"]) == 6
         assert len(first["data"]["skills_skipped"]) == 0
 
         # Second run -- everything should be skip-current
-        _skills_setup.setup(agent=None, dry_run=False, uninstall=False)
+        _skills_setup.setup(
+            agent=None, dry_run=False, uninstall=False, copy_mode=False, no_npx=True
+        )
         second = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
         assert len(second["data"]["skills_installed"]) == 0
         assert len(second["data"]["skills_skipped"]) == 6
@@ -217,5 +224,162 @@ def test_setup_unknown_agent_exits_2(
     import typer
 
     with pytest.raises(typer.Exit) as exc_info:
-        _skills_setup.setup(agent="bogus_agent", dry_run=True, uninstall=False)
+        _skills_setup.setup(
+            agent="bogus_agent", dry_run=True, uninstall=False, copy_mode=False, no_npx=True
+        )
     assert exc_info.value.exit_code == 2
+
+
+# ---------------------------------------------------------------------------
+# D2 — npx-skills delegation tests (M003)
+# ---------------------------------------------------------------------------
+
+
+def test_try_npx_skills_returns_none_when_npx_absent(
+    monkeypatch: pytest.MonkeyPatch, fake_skills_root: Path
+) -> None:
+    """No `npx` on PATH → fall back (None) so caller picks python-fallback."""
+    monkeypatch.setattr(_skills_setup.shutil, "which", lambda _: None)
+    result = _skills_setup._try_npx_skills(
+        action="install", copy_mode=False, skills_root=fake_skills_root
+    )
+    assert result is None
+
+
+def test_try_npx_skills_invokes_correct_command(
+    monkeypatch: pytest.MonkeyPatch, fake_skills_root: Path
+) -> None:
+    """The exact command line passed to subprocess.run is correct."""
+    captured: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **_: object) -> object:
+        captured.append(cmd)
+
+        class _R:
+            returncode = 0
+            stdout = "[]"
+            stderr = ""
+
+        return _R()
+
+    monkeypatch.setattr(_skills_setup.shutil, "which", lambda _: "/usr/bin/npx")
+    monkeypatch.setattr(_skills_setup.subprocess, "run", fake_run)
+    _skills_setup._try_npx_skills(
+        action="install", copy_mode=False, skills_root=fake_skills_root
+    )
+
+    add_cmd = next(c for c in captured if "add" in c)
+    assert add_cmd[:3] == ["npx", "-y", _skills_setup.SKILLS_NPM_VERSION]
+    assert "add" in add_cmd
+    assert str(fake_skills_root) in add_cmd
+    assert "-g" in add_cmd
+    assert "--all" in add_cmd
+    assert "-y" in add_cmd
+    assert "--copy" not in add_cmd  # copy_mode=False
+
+
+def test_try_npx_skills_copy_mode_appends_flag(
+    monkeypatch: pytest.MonkeyPatch, fake_skills_root: Path
+) -> None:
+    """copy_mode=True appends --copy to the install command."""
+    captured: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **_: object) -> object:
+        captured.append(cmd)
+
+        class _R:
+            returncode = 0
+            stdout = "[]"
+            stderr = ""
+
+        return _R()
+
+    monkeypatch.setattr(_skills_setup.shutil, "which", lambda _: "/usr/bin/npx")
+    monkeypatch.setattr(_skills_setup.subprocess, "run", fake_run)
+    _skills_setup._try_npx_skills(
+        action="install", copy_mode=True, skills_root=fake_skills_root
+    )
+
+    add_cmd = next(c for c in captured if "add" in c)
+    assert "--copy" in add_cmd
+
+
+def test_setup_uses_fallback_when_no_npx_flag(
+    fake_home: Path,
+    fake_skills_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`setup(no_npx=True)` skips npx delegation even when npx is available."""
+    npx_calls: list[str] = []
+    monkeypatch.setattr(_skills_setup.shutil, "which", lambda _: "/usr/bin/npx")
+    monkeypatch.setattr(
+        _skills_setup,
+        "_try_npx_skills",
+        lambda **_kw: npx_calls.append("called") or None,  # type: ignore[func-returns-value]
+    )
+    monkeypatch.setattr(_skills_setup.Path, "home", classmethod(lambda cls: fake_home))
+    monkeypatch.setattr(_skills_setup, "_resolve_skills_root", lambda: fake_skills_root)
+
+    from videoclaw.cli._output import get_output
+
+    out = get_output()
+    out.json_mode = True
+    try:
+        _skills_setup.setup(
+            agent=None, dry_run=True, uninstall=False, copy_mode=False, no_npx=True
+        )
+    finally:
+        out.json_mode = False
+
+    envelope = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert envelope["data"]["installer"] == "python-fallback"
+    assert npx_calls == [], "npx delegation must not be invoked when --no-npx is set"
+
+
+def test_setup_envelope_installer_npx_when_delegation_succeeds(
+    fake_home: Path,
+    fake_skills_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """When _try_npx_skills returns a dict, envelope.data.installer == 'npx-skills'."""
+    monkeypatch.setattr(_skills_setup.Path, "home", classmethod(lambda cls: fake_home))
+    monkeypatch.setattr(_skills_setup, "_resolve_skills_root", lambda: fake_skills_root)
+    monkeypatch.setattr(
+        _skills_setup,
+        "_try_npx_skills",
+        lambda **_kw: {
+            "ok": True,
+            "error": None,
+            "agents_detected": ["Claude Code", "Gemini CLI", "Antigravity"],
+            "skills_installed": [
+                {
+                    "agent": "Claude Code,Gemini CLI,Antigravity",
+                    "skill": "videoclaw-workflow",
+                    "path": "/fake/path",
+                    "version": videoclaw.__version__,
+                    "action": "would-create",
+                }
+            ],
+            "skills_skipped": [],
+            "skills_removed": [],
+        },
+    )
+
+    from videoclaw.cli._output import get_output
+
+    out = get_output()
+    out.json_mode = True
+    try:
+        _skills_setup.setup(
+            agent=None, dry_run=True, uninstall=False, copy_mode=False, no_npx=False
+        )
+    finally:
+        out.json_mode = False
+
+    envelope = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert envelope["ok"] is True
+    assert envelope["data"]["installer"] == "npx-skills"
+    assert "Gemini CLI" in envelope["data"]["agents_detected"]
+    assert "Antigravity" in envelope["data"]["agents_detected"]
