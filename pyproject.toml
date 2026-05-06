@@ -1,6 +1,6 @@
 [project]
 name = "videoclaw"
-version = "0.1.0"
+version = "0.1.1"
 description = "The Agent OS for AI Video Generation"
 readme = "README.md"
 license = { text = "Modified-MIT" }

@@ -19,7 +19,7 @@
 # Overrides via env::
 #
 #   GH_OWNER=AIGC-Hackers GH_REPO=videoclaw-cli   # source release
-#   VERSION=0.1.0                                 # which release tag
+#   VERSION=0.1.1                                 # which release tag
 #   INSTALL_DIR=$HOME/.local/bin                  # where to drop the binary
 #   CHANNEL=auto|uv|binary                        # force channel selection
 
@@ -27,7 +27,7 @@ set -eu
 
 GH_OWNER=${GH_OWNER:-AIGC-Hackers}
 GH_REPO=${GH_REPO:-videoclaw-cli}
-VERSION=${VERSION:-0.1.0}
+VERSION=${VERSION:-0.1.1}
 INSTALL_DIR=${INSTALL_DIR:-${HOME}/.local/bin}
 CHANNEL=${CHANNEL:-auto}
 
