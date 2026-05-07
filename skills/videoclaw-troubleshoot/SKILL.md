@@ -12,7 +12,7 @@ description: >
 metadata:
   author: VideoClaw Contributors
   license: Modified-MIT
-  version: 0.1.1
+  version: 0.1.2
   requires:
     bins:
       - claw
@@ -146,7 +146,7 @@ mentioning rate limit on the LLM gateway.
 
 ```bash
 # Override default model to something less rate-limited
-export VIDEOCLAW_DEFAULT_LLM=claude-haiku-4-5  # cheaper, less queue pressure
+export VIDEOCLAW_DEFAULT_LLM=claude-sonnet-4-6  # stronger structured output
 claw drama plan <series_id>
 ```
 

@@ -1,6 +1,6 @@
 [project]
 name = "videoclaw"
-version = "0.1.1"
+version = "0.1.2"
 description = "The Agent OS for AI Video Generation"
 readme = "README.md"
 license = { text = "Modified-MIT" }
@@ -27,6 +27,7 @@ dependencies = [
     "litellm>=1.55.0",
     "aiosqlite>=0.20.0",
     "zhipuai>=2.1.0",
+    "edge-tts>=7.0.0",
 ]
 
 [project.optional-dependencies]

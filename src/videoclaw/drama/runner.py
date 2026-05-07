@@ -125,6 +125,10 @@ async def _check_url_alive(
         return False
 
 
+def _has_https_url(url: str | None) -> bool:
+    return bool(url and url.startswith("https://"))
+
+
 async def ensure_fresh_urls(
     series: DramaSeries,
     drama_manager: DramaManager | None = None,
@@ -165,11 +169,11 @@ async def ensure_fresh_urls(
         chars_with_urls = [
             (char, char.reference_image_url)
             for char in series.characters
-            if char.reference_image_url
+            if _has_https_url(char.reference_image_url)
         ]
         # Characters with no URL always need refresh
         for char in series.characters:
-            if not char.reference_image_url:
+            if not _has_https_url(char.reference_image_url):
                 chars_needing_refresh.append(char.name)
 
         if chars_with_urls:
@@ -187,7 +191,6 @@ async def ensure_fresh_urls(
                         "Character %s URL expired/unreachable: %s...",
                         char.name, url[:60],
                     )
-                    char.reference_image_url = None
                     chars_needing_refresh.append(char.name)
 
     if not chars_needing_refresh:
@@ -203,6 +206,14 @@ async def ensure_fresh_urls(
     mgr = drama_manager or DramaManager()
     designer = CharacterDesigner(drama_manager=mgr)
     refreshed = await designer.refresh_urls(series, force=False)
+    missing = [
+        c.name for c in series.characters
+        if not _has_https_url(c.reference_image_url)
+    ]
+    if missing:
+        raise RuntimeError(
+            "Character reference URL refresh failed for: " + ", ".join(missing)
+        )
     return refreshed
 
 
@@ -432,7 +443,7 @@ def build_episode_dag(
     return dag, state
 
 
-def _build_scene_dict(scene: "DramaScene", character_voices: dict[str, Any]) -> dict[str, Any]:
+def _build_scene_dict(scene: DramaScene, character_voices: dict[str, Any]) -> dict[str, Any]:
     """Build the TTS-node scene parameter dict for a single scene."""
     voice = None
     if scene.speaking_character and scene.speaking_character in character_voices:
@@ -641,7 +652,7 @@ def build_scene_regen_dag(
             f"Scene {scene_id!r} not found in episode {episode.number} "
             f"(available: {[s.scene_id for s in episode.scenes]})"
         )
-    scene_idx, target_scene = entry
+    _scene_idx, target_scene = entry
 
     # Build character reference image lookup (single + multi-angle + HTTPS URLs)
     char_ref_map: dict[str, str] = {

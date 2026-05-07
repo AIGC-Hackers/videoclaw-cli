@@ -201,6 +201,14 @@ def sanitize_for_image_api(text: str) -> str:
     return text.strip()
 
 
+def _path_is_file(path: str | None) -> bool:
+    return bool(path and Path(path).is_file())
+
+
+def _is_https_url(url: str | None) -> bool:
+    return bool(url and url.startswith("https://"))
+
+
 class CharacterDesigner:
     """Generates reference images for all characters in a drama series.
 
@@ -267,18 +275,27 @@ class CharacterDesigner:
         locale = get_locale(series.language)
         style_line = locale.character_image_style.format(style=style)
 
-        sem = asyncio.Semaphore(3)
+        # last_image_url is stored on the shared generator instance; serialize
+        # turnaround generation so each character captures its own HTTPS URL.
+        sem = asyncio.Semaphore(1 if self._turnaround else 3)
 
         async def _gen_one(character) -> None:  # type: ignore[no-untyped-def]
             if not force:
-                if self._turnaround and character.reference_image:
+                if self._turnaround and self._has_valid_turnaround(character):
                     logger.info("Skipping %s (already has turnaround sheet)", character.name)
                     return
-                if not self._turnaround and self._multi_angle and character.reference_images:
+                if not self._turnaround and self._multi_angle and (
+                    character.reference_images
+                    and all(_path_is_file(path) for path in character.reference_images)
+                ):
                     logger.info("Skipping %s (already has %d reference images)",
                                 character.name, len(character.reference_images))
                     return
-                if not self._turnaround and not self._multi_angle and character.reference_image:
+                if (
+                    not self._turnaround
+                    and not self._multi_angle
+                    and _path_is_file(character.reference_image)
+                ):
                     logger.info("Skipping %s (already has reference image)", character.name)
                     return
 
@@ -307,6 +324,63 @@ class CharacterDesigner:
         logger.info("Character designs saved for series %s", series.series_id)
         return series
 
+    @staticmethod
+    def _has_valid_turnaround(character: Character) -> bool:
+        return (
+            _path_is_file(character.reference_image)
+            and bool(character.reference_images)
+            and all(_path_is_file(path) for path in character.reference_images)
+            and _is_https_url(character.reference_image_url)
+        )
+
+    @staticmethod
+    def _require_https_url(gen: ImageGenerator, character_name: str) -> str:
+        url = getattr(gen, "last_image_url", None)
+        if not _is_https_url(url):
+            raise RuntimeError(
+                f"Character {character_name!r} image generation did not return "
+                "the HTTPS URL required by Seedance."
+            )
+        return url
+
+    async def _generate_image_with_retries(
+        self,
+        gen: ImageGenerator,
+        prompt: str,
+        *,
+        output_dir: Path,
+        filename: str,
+        attempts: int = 3,
+        **kwargs: Any,
+    ) -> Path:
+        last_error: Exception | None = None
+        for attempt in range(attempts):
+            try:
+                path = await gen.generate(
+                    prompt,
+                    output_dir=output_dir,
+                    filename=filename,
+                    **kwargs,
+                )
+                if not Path(path).is_file():
+                    raise RuntimeError(
+                        f"Image generator returned missing file for {filename}: {path}"
+                    )
+                return path
+            except Exception as exc:
+                last_error = exc
+                if attempt >= attempts - 1:
+                    break
+                logger.warning(
+                    "Image generation failed for %s on attempt %d/%d: %s; retrying",
+                    filename,
+                    attempt + 1,
+                    attempts,
+                    exc,
+                )
+                await asyncio.sleep(0)
+        raise last_error or RuntimeError(f"Image generation failed for {filename}")
+
     async def _generate_turnaround(
         self,
         gen: ImageGenerator,
@@ -332,20 +406,19 @@ class CharacterDesigner:
         filename = f"{safe_name}_turnaround.png"
 
         logger.info("Generating turnaround sheet for %s", character.name)
-        path = await gen.generate(
+        path = await self._generate_image_with_retries(
+            gen,
             prompt,
             output_dir=char_dir,
             filename=filename,
             size="16:9",
         )
+        url = self._require_https_url(gen, character.name)
         character.reference_image = str(path)
         character.reference_images = [str(path)]
-
-        # Store the HTTPS URL if the generator captured it
-        if hasattr(gen, "last_image_url") and gen.last_image_url:
-            character.reference_image_url = gen.last_image_url
-            logger.info("Stored HTTPS URL for %s turnaround: %s",
-                        character.name, gen.last_image_url[:80])
+        character.reference_image_url = url
+        logger.info("Stored HTTPS URL for %s turnaround: %s",
+                    character.name, url[:80])
 
     async def _generate_multi_angle(
         self,
@@ -368,7 +441,8 @@ class CharacterDesigner:
 
             logger.info("Generating %s reference (%s) for %s",
                         pose["angle"], pose["framing"][:30], character.name)
-            path = await gen.generate(
+            path = await self._generate_image_with_retries(
+                gen,
                 prompt,
                 output_dir=char_dir,
                 filename=filename,
@@ -396,7 +470,8 @@ class CharacterDesigner:
         filename = f"{safe_name}.png"
 
         logger.info("Generating reference image for %s", character.name)
-        path = await gen.generate(
+        path = await self._generate_image_with_retries(
+            gen,
             prompt,
             output_dir=char_dir,
             filename=filename,
@@ -431,10 +506,11 @@ class CharacterDesigner:
         style_line = locale.character_image_style.format(style=style)
 
         refreshed: dict[str, str] = {}
-        sem = asyncio.Semaphore(3)
+        sem = asyncio.Semaphore(1)
+        failures: list[str] = []
 
         async def _refresh_one(character) -> None:  # type: ignore[no-untyped-def]
-            if not force and character.reference_image_url:
+            if not force and _is_https_url(character.reference_image_url):
                 logger.info(
                     "Skipping %s URL refresh (has URL: %s...)",
                     character.name,
@@ -447,37 +523,19 @@ class CharacterDesigner:
                 clean_visual_prompt(character.visual_prompt)
             )
             safe_name = re.sub(r"[^\w\-]", "_", character.name).strip("_")
-            filename = f"{safe_name}_turnaround.png"
-
-            local_path = char_dir / filename
-            if local_path.exists():
-                local_path.unlink()
-                logger.info("Deleted stale turnaround: %s", filename)
-
-            prompt = TURNAROUND_SHEET_PROMPT.format(
-                appearance=appearance,
-                style_line=style_line,
-            )
 
             logger.info("Refreshing URL for %s...", character.name)
             try:
                 async with sem:
-                    path = await gen.generate(
-                        prompt,
-                        output_dir=char_dir,
-                        filename=filename,
-                        size="16:9",
+                    await self._generate_turnaround(
+                        gen,
+                        character,
+                        appearance,
+                        style_line,
+                        safe_name,
+                        char_dir,
                     )
-                character.reference_image = str(path)
-                character.reference_images = [str(path)]
-
-                url = ""
-                if hasattr(gen, "last_image_url") and gen.last_image_url:
-                    url = gen.last_image_url
-                    character.reference_image_url = url
-                    logger.info("Refreshed %s URL: %s...", character.name, url[:80])
-
-                refreshed[character.name] = url
+                refreshed[character.name] = character.reference_image_url or ""
             except Exception as e:
                 # Surface the full error so content-filter rejections are visible
                 logger.error(
@@ -486,10 +544,19 @@ class CharacterDesigner:
                     exc_info=True,
                 )
                 refreshed[character.name] = ""
+                failures.append(f"{character.name}: {e}")
 
         await asyncio.gather(*[_refresh_one(c) for c in series.characters])
 
         await self._drama_mgr.save_async(series)
+        missing = [
+            c.name for c in series.characters
+            if not _is_https_url(c.reference_image_url)
+        ]
+        if failures or missing:
+            detail = "; ".join(failures) if failures else ", ".join(missing)
+            raise RuntimeError(f"Failed to refresh character URLs: {detail}")
+
         logger.info(
             "URL refresh complete: %d/%d characters have URLs",
             sum(1 for v in refreshed.values() if v),

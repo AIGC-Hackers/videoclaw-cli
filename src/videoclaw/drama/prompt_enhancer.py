@@ -35,7 +35,6 @@ if TYPE_CHECKING:
 _MAX_ENGLISH_WORDS = 1000
 _MAX_CHINESE_CHARS = 500
 _CJK_CHAR_RE = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf]')
-_REF_KEY_RE = re.compile(r'[^a-zA-Z0-9]')
 
 
 def _to_ref_key(name: str) -> str:
@@ -43,6 +42,7 @@ def _to_ref_key(name: str) -> str:
 
     - Lowercase
     - Non-alphanumeric → underscore
+    - CJK characters → deterministic ``u<hex codepoint>`` tokens
     - Strip leading/trailing underscores
 
     Examples::
@@ -51,7 +51,16 @@ def _to_ref_key(name: str) -> str:
         "poolside_night"  → "poolside_night"
         "Colton Black"    → "colton_black"
     """
-    key = _REF_KEY_RE.sub("_", name.lower()).strip("_")
+    pieces: list[str] = []
+    for char in name.lower():
+        if char.isascii() and char.isalnum():
+            pieces.append(char)
+        elif _CJK_CHAR_RE.fullmatch(char):
+            pieces.append(f"_u{ord(char):x}_")
+        else:
+            pieces.append("_")
+
+    key = "".join(pieces).strip("_")
     # Collapse consecutive underscores
     key = re.sub(r"_+", "_", key)
     return key
@@ -90,8 +99,14 @@ CAMERA_MOVEMENT_LABELS: dict[str, str] = {
 _SHOT_CAMERA_AFFINITY: dict[ShotScale, set[str]] = {
     ShotScale.CLOSE_UP: {"dolly_in", "static", "tilt_up", "dolly_zoom"},
     ShotScale.MEDIUM_CLOSE: {"handheld", "tracking", "orbit", "dolly_zoom"},
-    ShotScale.MEDIUM: {"handheld", "tracking", "dolly_in", "orbit", "whip_pan", "pull_back", "pan_left", "pan_right"},
-    ShotScale.WIDE: {"static", "dolly_in", "crane_up", "pull_back", "orbit", "pan_left", "pan_right"},
+    ShotScale.MEDIUM: {
+        "handheld", "tracking", "dolly_in", "orbit", "whip_pan",
+        "pull_back", "pan_left", "pan_right",
+    },
+    ShotScale.WIDE: {
+        "static", "dolly_in", "crane_up", "pull_back", "orbit",
+        "pan_left", "pan_right",
+    },
     ShotScale.EXTREME_WIDE: {"static", "crane_up", "pull_back"},
 }
 
@@ -416,7 +431,7 @@ class PromptEnhancer:
                     if match_text in vp_lower or match_text in desc_lower:
                         scene_text += f" [ref:{skey}]"
                         break  # Only ONE scene ref per shot
-            # --- Prop ref markers (use pre-computed match_map to avoid per-scene key recomputation) ---
+            # --- Prop ref markers (use pre-computed match_map) ---
             if prop_match_map:
                 vp_lower = scene.visual_prompt.lower()
                 for match_text, pkey in prop_match_map.items():

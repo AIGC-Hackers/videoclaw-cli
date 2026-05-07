@@ -4,6 +4,29 @@ All notable changes to videoclaw are documented in this file. Format
 follows the google/agents-cli style — `## [<version>] - YYYY-MM-DD`
 with grouped bullets.
 
+## [0.1.2] - 2026-05-07
+
+Stabilizes the packaged Codex / coding-agent drama workflow with Sonnet
+4.6 as the default LLM and stronger retries around real external model
+calls.
+
+### Behavior
+
+- `VIDEOCLAW_DEFAULT_LLM` now defaults to `claude-sonnet-4-6`.
+- `claw drama plan` and `claw drama script` request larger, lower-temperature
+  JSON completions to reduce truncation and schema drift.
+- Planner JSON calls retry once when the model returns markdown, invalid JSON,
+  or JSON missing required arrays.
+- Scene and prop reference image generation retries transient external image
+  gateway failures before surfacing an error.
+
+### Tests
+
+- Added regression coverage for the Sonnet 4.6 config default.
+- Added planner tests for malformed JSON recovery, missing-schema recovery,
+  and JSON call options.
+- Added scene-designer coverage for transient image generation retry.
+
 ## [0.1.1] - 2026-05-07
 
 Hybrid `claw setup` — delegates to the [`vercel-labs/skills`](https://github.com/vercel-labs/skills)

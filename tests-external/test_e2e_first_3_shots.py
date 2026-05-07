@@ -340,6 +340,16 @@ def test_T7_design_characters_populates_reference_images() -> None:
             f"character {ch.get('name')!r} has no reference_images after "
             f"design-characters — videoclaw bug or insufficient design pass"
         )
+        for ref in refs:
+            assert Path(ref).is_file(), (
+                f"character {ch.get('name')!r} reference image is recorded "
+                f"but missing on disk: {ref}"
+            )
+        url = ch.get("reference_image_url") or ""
+        assert url.startswith("https://"), (
+            f"character {ch.get('name')!r} missing HTTPS reference_image_url "
+            "required by Seedance"
+        )
 
 
 # ----- T8: dry-run of the run pipeline (no video calls) ----------------------
@@ -406,9 +416,11 @@ def test_T9_drama_run_first_3_shots_produces_videos() -> None:
     chars = data.get("characters") or []
     for ch in chars:
         refs = ch.get("reference_images") or []
-        if not refs:
+        url = ch.get("reference_image_url") or ""
+        missing_refs = [ref for ref in refs if not Path(ref).is_file()]
+        if not refs or missing_refs or not url.startswith("https://"):
             pytest.skip(
-                f"character {ch.get('name')!r} has no reference_images. "
+                f"character {ch.get('name')!r} has incomplete reference assets. "
                 f"Run T7 (design-characters) first — see test docstring."
             )
 
@@ -422,8 +434,20 @@ def test_T9_drama_run_first_3_shots_produces_videos() -> None:
         "--no-agents",
         check=False,
     )
+    after = json.loads(series_json.read_text(encoding="utf-8"))
+    episode = (after.get("episodes") or [{}])[0]
+    project_id = episode.get("project_id")
+    videos: list[Path] = []
+    if project_id:
+        state_json = get_config().projects_dir / project_id / "state.json"
+        if state_json.is_file():
+            state = json.loads(state_json.read_text(encoding="utf-8"))
+            for shot in state.get("storyboard") or []:
+                asset_path = shot.get("asset_path")
+                if asset_path and Path(asset_path).is_file():
+                    videos.append(Path(asset_path))
     series_dir = get_config().projects_dir / "dramas" / series_id
-    videos = list(series_dir.rglob("*.mp4"))
+    videos.extend(path for path in series_dir.rglob("*.mp4") if path not in videos)
     assert len(videos) >= 3, (
         f"expected ≥3 .mp4 artifacts, found {len(videos)}\n"
         f"stdout tail:\n{res.stdout[-500:]}\nstderr tail:\n{res.stderr[-500:]}"

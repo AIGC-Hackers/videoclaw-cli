@@ -506,6 +506,92 @@ class DramaPlanner:
             self._llm = LLMClient(default_model=get_config().default_llm)
         return self._llm
 
+    async def _chat_json(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        max_tokens: int | None = None,
+        temperature: float = 0.2,
+        attempts: int = 2,
+        required_arrays: tuple[str, ...] = (),
+    ) -> dict[str, Any]:
+        """Call the LLM and parse JSON, retrying once with stricter repair context."""
+        llm = self._ensure_llm()
+        current_messages = messages
+        last_error: ValueError | None = None
+        raw = ""
+
+        for attempt in range(attempts):
+            raw = await llm.chat(
+                messages=current_messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            try:
+                result = self._parse_json(raw)
+                self._validate_required_arrays(result, required_arrays)
+                return result
+            except ValueError as exc:
+                last_error = exc
+                if attempt >= attempts - 1:
+                    break
+                logger.warning(
+                    "LLM JSON parse failed on attempt %d/%d; retrying with repair prompt",
+                    attempt + 1,
+                    attempts,
+                )
+                current_messages = self._build_json_retry_messages(messages, raw, exc)
+
+        raise last_error or ValueError("LLM returned invalid JSON — retry the request.")
+
+    @staticmethod
+    def _validate_required_arrays(data: dict[str, Any], required_arrays: tuple[str, ...]) -> None:
+        missing = [
+            key for key in required_arrays
+            if not isinstance(data.get(key), list) or len(data.get(key, [])) == 0
+        ]
+        if missing:
+            joined = ", ".join(missing)
+            raise ValueError(f"required JSON fields were missing or empty: {joined}")
+
+    @staticmethod
+    def _build_json_retry_messages(
+        original_messages: list[dict[str, str]],
+        invalid_response: str,
+        error: ValueError,
+    ) -> list[dict[str, str]]:
+        system_parts = [
+            m["content"] for m in original_messages
+            if m.get("role") == "system" and m.get("content")
+        ]
+        user_parts = [
+            m["content"] for m in original_messages
+            if m.get("role") != "system" and m.get("content")
+        ]
+        original_user = "\n\n".join(user_parts)
+        invalid_excerpt = invalid_response.strip()[:4000]
+        return [
+            {
+                "role": "system",
+                "content": (
+                    "\n\n".join(system_parts)
+                    + "\n\nReturn ONLY valid JSON. Do not include markdown, headings, "
+                    "commentary, apologies, or tool-call narration. The first "
+                    "non-whitespace character must be `{` and the last must be `}`."
+                ).strip(),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Original request:\n{original_user}\n\n"
+                    f"Previous response was not valid JSON ({error}):\n"
+                    f"{invalid_excerpt}\n\n"
+                    "Regenerate the answer as a single JSON object matching the "
+                    "schema from the system prompt exactly."
+                ),
+            },
+        ]
+
     async def plan_series(self, series: DramaSeries) -> DramaSeries:
         """Generate the full series outline from a synopsis.
 
@@ -518,7 +604,6 @@ class DramaPlanner:
         )
         series.status = DramaStatus.PLANNING
 
-        llm = self._ensure_llm()
         user_message = (
             f"Concept: {series.synopsis}\n"
             f"Genre: {series.genre or 'drama'}\n"
@@ -531,14 +616,14 @@ class DramaPlanner:
         from videoclaw.drama.locale import get_locale
         locale = get_locale(series.language)
         prompt = locale.series_outline_prompt or SERIES_OUTLINE_PROMPT
-        raw = await llm.chat(
-            messages=[
+        plan = await self._chat_json(
+            [
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": user_message},
             ],
+            max_tokens=8192,
+            required_arrays=("characters", "episodes"),
         )
-
-        plan = self._parse_json(raw)
 
         series.title = plan.get("title", series.title)
         series.genre = plan.get("genre", series.genre)
@@ -575,8 +660,6 @@ class DramaPlanner:
         """
         logger.info("Scripting episode %d: %r", episode.number, episode.title)
 
-        llm = self._ensure_llm()
-
         characters_text = "\n".join(
             f"  - {c.name}: {c.visual_prompt} ({c.description})"
             for c in series.characters
@@ -609,14 +692,14 @@ class DramaPlanner:
         from videoclaw.drama.locale import get_locale
         locale = get_locale(series.language)
         prompt = locale.episode_script_prompt or EPISODE_SCRIPT_PROMPT
-        raw = await llm.chat(
-            messages=[
+        script_data = await self._chat_json(
+            [
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": user_message},
             ],
+            max_tokens=8192,
+            required_arrays=("scenes",),
         )
-
-        script_data = self._parse_json(raw)
 
         # --- Duration validation ---
         scenes = script_data.get("scenes", [])

@@ -33,7 +33,7 @@ VideoClaw gives your coding agent the **CLI commands and skills** to plan, desig
 ### 1. Install the CLI + skills
 
 ```bash
-uvx --from https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.1/videoclaw-0.1.1-py3-none-any.whl videoclaw setup
+uvx --from https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.2/videoclaw-0.1.2-py3-none-any.whl videoclaw setup
 ```
 
 `claw setup` detects which coding agents are present and copies the
@@ -54,7 +54,7 @@ Use `claw setup --no-npx` to force the fallback explicitly, or
 - **From source (Python ≥ 3.12)** — `git clone … && uv sync && uv run claw --help`
 - **One-line installer (post-release)** — `curl -fsSL https://raw.githubusercontent.com/AIGC-Hackers/videoclaw-cli/main/install.sh | sh`
 - **Docker** — `docker build -t videoclaw-cli -f packaging/Dockerfile . && docker run --rm videoclaw-cli version`
-- **Wheel from GitHub Releases** — `pip install https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.1/videoclaw-0.1.1-py3-none-any.whl`
+- **Wheel from GitHub Releases** — `pip install https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.2/videoclaw-0.1.2-py3-none-any.whl`
 
 Full channel matrix: [`packaging/DISTRIBUTION-PLAN.md`](packaging/DISTRIBUTION-PLAN.md).
 
@@ -78,7 +78,7 @@ In a Claude Code conversation, say *"use videoclaw to make a drama"* — the `vi
 <summary><b>OpenClaw</b> — versioned skill names</summary>
 
 ```bash
-uvx --from <wheel-url> videoclaw setup    # → ~/.openclaw-autoclaw/skills/videoclaw-workflow-0.1.1/
+uvx --from <wheel-url> videoclaw setup    # → ~/.openclaw-autoclaw/skills/videoclaw-workflow-0.1.2/
 claw --json doctor
 ```
 Reference skills as `/videoclaw-workflow` in your orchestration prompts.
@@ -288,7 +288,7 @@ Run `bash packaging/setup.sh` (interactive wizard) — writes
 |---|---|---|
 | `VIDEOCLAW_EVOLINK_API_KEY` | Yes | Evolink LLM gateway (Claude / GPT / Kimi / DeepSeek). |
 | `VIDEOCLAW_ARK_API_KEY` | For Seedance | Seedance 2.0 video API. |
-| `VIDEOCLAW_DEFAULT_LLM` | No | Default LLM (default `kimi-k2`). |
+| `VIDEOCLAW_DEFAULT_LLM` | No | Default LLM (default `claude-sonnet-4-6`). |
 | `VIDEOCLAW_DEFAULT_VIDEO_MODEL` | No | Default video model (default `seedance-2.0`; use `mock` for dry-run). |
 | `VIDEOCLAW_PROJECTS_DIR` | No | Project storage path (default `./projects`). |
 | `VIDEOCLAW_BUDGET_DEFAULT_USD` | No | Budget cap (default `10.0`). |

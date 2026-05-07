@@ -40,7 +40,7 @@ def get_config() -> Any:
         deliverables_dir: Path = Field(default=Path("./docs/deliverables"))
 
         # --- Model defaults ---
-        default_llm: str = "kimi-k2"
+        default_llm: str = "claude-sonnet-4-6"
         default_video_model: str = "seedance-2.0"
 
         # --- Language ---

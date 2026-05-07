@@ -1,5 +1,7 @@
 """Tests for drama runner (runner.py)."""
 
+from unittest.mock import MagicMock
+
 import pytest
 
 from videoclaw.drama.models import (
@@ -9,7 +11,12 @@ from videoclaw.drama.models import (
     Episode,
     VoiceProfile,
 )
-from videoclaw.drama.runner import _check_url_alive, build_episode_dag, build_scene_regen_dag
+from videoclaw.drama.runner import (
+    _check_url_alive,
+    build_episode_dag,
+    build_scene_regen_dag,
+    ensure_fresh_urls,
+)
 
 # ---------------------------------------------------------------------------
 # DAG structure
@@ -356,6 +363,68 @@ def test_scene_and_prop_refs_passed_to_shots(tmp_path):
     assert "poolside_night" in shot.scene_reference_urls
     assert hasattr(shot, "prop_reference_urls")
     assert "brochure" in shot.prop_reference_urls
+
+
+@pytest.mark.asyncio
+async def test_ensure_fresh_urls_fails_when_refresh_leaves_missing_urls(monkeypatch):
+    """Generation must stop before video calls if a character URL cannot refresh."""
+    series = DramaSeries(
+        title="Missing URL",
+        characters=[Character(name="Ivy", visual_prompt="blonde hair")],
+    )
+
+    class _FailingDesigner:
+        def __init__(self, drama_manager=None):
+            self.drama_manager = drama_manager
+
+        async def refresh_urls(self, series, *, force=False):
+            return {"Ivy": ""}
+
+    monkeypatch.setattr(
+        "videoclaw.drama.character_designer.CharacterDesigner",
+        _FailingDesigner,
+    )
+
+    with pytest.raises(RuntimeError, match="Ivy"):
+        await ensure_fresh_urls(series, drama_manager=MagicMock())
+
+
+@pytest.mark.asyncio
+async def test_ensure_fresh_urls_preserves_existing_url_when_refresh_fails(
+    monkeypatch,
+):
+    """A failed refresh should abort without erasing the previous reference URL."""
+    series = DramaSeries(
+        title="Stale URL",
+        characters=[
+            Character(
+                name="Ivy",
+                visual_prompt="blonde hair",
+                reference_image_url="https://example.com/old-ivy.png",
+            )
+        ],
+    )
+
+    async def _dead_url(*args, **kwargs):
+        return False
+
+    class _FailingDesigner:
+        def __init__(self, drama_manager=None):
+            self.drama_manager = drama_manager
+
+        async def refresh_urls(self, series, *, force=False):
+            raise RuntimeError("refresh failed")
+
+    monkeypatch.setattr("videoclaw.drama.runner._check_url_alive", _dead_url)
+    monkeypatch.setattr(
+        "videoclaw.drama.character_designer.CharacterDesigner",
+        _FailingDesigner,
+    )
+
+    with pytest.raises(RuntimeError, match="refresh failed"):
+        await ensure_fresh_urls(series, drama_manager=MagicMock())
+
+    assert series.characters[0].reference_image_url == "https://example.com/old-ivy.png"
 
 
 # ---------------------------------------------------------------------------

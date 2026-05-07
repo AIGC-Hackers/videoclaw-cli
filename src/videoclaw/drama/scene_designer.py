@@ -254,11 +254,47 @@ class SceneDesigner:
                 else:
                     raise ValueError("No BytePlus API key")
             except (ImportError, ValueError, OSError, RuntimeError) as exc:
-                logger.warning("BytePlus unavailable for scene/prop images (%s), falling back to Evolink", exc)
+                logger.warning(
+                    "BytePlus unavailable for scene/prop images (%s), falling back to Evolink",
+                    exc,
+                )
                 from videoclaw.generation.evolink_image import EvolinkImageGenerator
                 self._img_gen = EvolinkImageGenerator()
                 logger.info("Using Evolink for scene/prop images (BytePlus unavailable)")
         return self._img_gen
+
+    async def _generate_image_with_retries(
+        self,
+        gen: Any,
+        prompt: str,
+        *,
+        output_dir: Path,
+        filename: str,
+        size: str,
+        attempts: int = 3,
+    ) -> Path:
+        last_error: Exception | None = None
+        for attempt in range(attempts):
+            try:
+                return await gen.generate(
+                    prompt,
+                    output_dir=output_dir,
+                    filename=filename,
+                    size=size,
+                )
+            except Exception as exc:
+                last_error = exc
+                if attempt >= attempts - 1:
+                    break
+                logger.warning(
+                    "Image generation failed for %s on attempt %d/%d: %s; retrying",
+                    filename,
+                    attempt + 1,
+                    attempts,
+                    exc,
+                )
+                await asyncio.sleep(0)
+        raise last_error or RuntimeError(f"Image generation failed for {filename}")
 
     async def design_scenes(
         self,
@@ -303,7 +339,13 @@ class SceneDesigner:
             filename = f"scene_{safe_name}.png"
             logger.info("Generating scene reference for %r", loc.name)
             async with sem:
-                path = await gen.generate(prompt, output_dir=scene_dir, filename=filename, size="16:9")
+                path = await self._generate_image_with_retries(
+                    gen,
+                    prompt,
+                    output_dir=scene_dir,
+                    filename=filename,
+                    size="16:9",
+                )
             loc.reference_image = str(path)
             loc.reference_image_url = getattr(gen, "last_image_url", None)
 
@@ -361,7 +403,13 @@ class SceneDesigner:
             logger.info("Generating prop reference for %r (used in %d scenes)",
                         prop.name, len(prop.scenes_used))
             async with sem:
-                path = await gen.generate(prompt, output_dir=prop_dir, filename=filename, size="1:1")
+                path = await self._generate_image_with_retries(
+                    gen,
+                    prompt,
+                    output_dir=prop_dir,
+                    filename=filename,
+                    size="1:1",
+                )
             prop.reference_image = str(path)
             prop.reference_image_url = getattr(gen, "last_image_url", None)
 

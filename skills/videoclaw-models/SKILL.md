@@ -11,7 +11,7 @@ description: >
 metadata:
   author: VideoClaw Contributors
   license: Modified-MIT
-  version: 0.1.1
+  version: 0.1.2
   requires:
     bins:
       - claw

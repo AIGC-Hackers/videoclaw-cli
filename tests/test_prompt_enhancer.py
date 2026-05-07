@@ -288,6 +288,9 @@ class TestToRefKey:
     def test_consecutive_underscores_collapsed(self):
         assert _to_ref_key("a   b") == "a_b"
 
+    def test_cjk_name_gets_ascii_key(self):
+        assert _to_ref_key("陆北辰") == "u9646_u5317_u8fb0"
+
 
 # ---------------------------------------------------------------------------
 # Tests: [ref:key] markers
@@ -404,6 +407,29 @@ class TestRefMarkers:
         }
         result = enhancer.enhance_scene_prompt(scene, series, available_refs=refs)
         assert "[ref:lin_yue]" in result
+
+    def test_chinese_cjk_character_ref_marker_is_not_empty(self):
+        """CJK-only character names must produce usable [ref:key] markers."""
+        enhancer = PromptEnhancer(strip_chinese=False)
+        scene = _make_scene(characters_present=["陆北辰"])
+        series = _make_series(
+            characters=[
+                Character(
+                    name="陆北辰",
+                    visual_prompt="Asian male, early 30s, dark navy shirt",
+                ),
+            ],
+        )
+        refs = {
+            "characters": {
+                "陆北辰": "https://cdn.example.com/lbc.jpg",
+            },
+        }
+
+        result = enhancer.enhance_scene_prompt(scene, series, available_refs=refs)
+
+        assert "[ref:u9646_u5317_u8fb0]" in result
+        assert "[ref:]" not in result
 
 
 # ---------------------------------------------------------------------------
