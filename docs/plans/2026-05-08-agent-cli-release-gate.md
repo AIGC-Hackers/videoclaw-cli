@@ -12,6 +12,9 @@ The deliverable is `./agent-cli-release-gate.sh`. It does not replace
 source verification, schema validation, artifact build, fresh wheel install,
 packaged CLI setup checks, and optional billable drama video E2E.
 
+The root onboarding document for deployment agents is
+`AGENT_CLI_PACKAGING.md`.
+
 ## User Intent
 
 The release path is optimized for these deployment-agent workflows:
@@ -26,6 +29,12 @@ The release path is optimized for these deployment-agent workflows:
 ## Commands
 
 ```bash
+# First-time host setup.
+./agent-cli-release-gate.sh setup --with-npx --with-bin
+
+# One-command recommended non-billable packaging flow.
+./agent-cli-release-gate.sh package
+
 # Pull request / normal source edit.
 ./agent-cli-release-gate.sh ci
 
@@ -81,6 +90,13 @@ The release path is optimized for these deployment-agent workflows:
      artifacts.
    - These are gated because they require real API keys, budget, and time.
 
+6. **One-command packaging flow**
+   - `package` mode runs dependency setup, the release-grade distribution
+     build, wheel-install verification, fallback setup verification, and
+     `npx-skills` verification in one command.
+   - Use `--skip-setup` when the host is already prepared and a deployment
+     agent wants to avoid reinstalling local tools.
+
 ## Repackaging Policy
 
 Not every source edit needs an immediate public version release. But every
@@ -94,8 +110,8 @@ Recommended order:
 3. If the change affects public behavior, bundled skills, packaging metadata,
    model defaults, or install/setup behavior, bump the release version before
    publishing.
-4. Run `./agent-cli-release-gate.sh version`.
-5. Run `./agent-cli-release-gate.sh release --with-npx` on a Node-equipped host.
+4. Run `./agent-cli-release-gate.sh package` on a Node-equipped host.
+5. If a narrower split is needed, run `version` then `release --with-npx`.
 6. For real-video confidence, add `--with-real-llm --with-real-video`.
 7. Commit the source and packaging changes.
 8. Tag/push or trigger the existing release workflow to publish artifacts.

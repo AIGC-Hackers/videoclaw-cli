@@ -66,14 +66,14 @@ When changing source, skills, packaging metadata, or release versions, use the
 root-level gate before publishing artifacts:
 
 ```bash
-./agent-cli-release-gate.sh ci                # source-change gate
-./agent-cli-release-gate.sh version           # version-bump packaging gate
-./agent-cli-release-gate.sh release --with-npx # release candidate + skills registry
+./agent-cli-release-gate.sh setup --with-npx --with-bin # first-time host setup
+./agent-cli-release-gate.sh ci                          # source-change gate
+./agent-cli-release-gate.sh package                     # one-command packaging gate
 ```
 
 The gate rebuilds the wheel, installs it into a fresh venv, and verifies the
 packaged `claw` CLI. Add `--with-real-llm --with-real-video` for the billable
-first-3-shots proof.
+first-3-shots proof. Full packaging setup: [`AGENT_CLI_PACKAGING.md`](AGENT_CLI_PACKAGING.md).
 
 ### 2. Open your coding agent
 

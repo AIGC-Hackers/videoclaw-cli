@@ -14,13 +14,15 @@ cd "$REPO_ROOT"
 usage() {
     cat <<'EOF'
 Usage:
-  ./agent-cli-release-gate.sh [ci|changed|version|release] [options]
+  ./agent-cli-release-gate.sh [setup|ci|changed|version|release|package] [options]
 
 Modes:
+  setup    Install/check local dependencies used by the packaging gate.
   ci       Deterministic, network-free gate for pull requests and source edits.
   changed  Local source-change gate; same artifact contract as ci.
   version  Version-bump gate; runs packaging/dist-verify.sh plus packaged CLI checks.
   release  Release-candidate gate; version gate plus optional registry and E2E flags.
+  package  One-command non-billable packaging flow: setup + release + npx checks.
 
 Options:
   --mode MODE          Set mode explicitly.
@@ -41,6 +43,7 @@ Environment:
   AGENT_CLI_REAL_VIDEO=1     Same as --with-real-video.
   AGENT_CLI_DIST_BIN=0|1     Override PyInstaller stage for version/release modes.
   AGENT_CLI_DIST_DOCKER=0|1  Override Docker stage for version/release modes.
+  AGENT_CLI_SKIP_SETUP=1     Skip dependency setup in package mode.
   AGENT_CLI_PYTHON=/path     Python >=3.12 used for wheel-install venvs.
   KEEP_AGENT_CLI_GATE_VENV=1 Keep the temporary wheel-install venv for inspection.
 
@@ -54,15 +57,16 @@ EOF
 
 MODE="changed"
 PRINT_PLAN=0
-WITH_NPX="${AGENT_CLI_WITH_NPX:-0}"
+WITH_NPX="${AGENT_CLI_WITH_NPX:-}"
 REAL_LLM="${AGENT_CLI_REAL_LLM:-0}"
 REAL_VIDEO="${AGENT_CLI_REAL_VIDEO:-0}"
 DIST_BIN_OVERRIDE="${AGENT_CLI_DIST_BIN:-}"
 DIST_DOCKER_OVERRIDE="${AGENT_CLI_DIST_DOCKER:-}"
+SKIP_SETUP="${AGENT_CLI_SKIP_SETUP:-0}"
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        ci|changed|version|release)
+        setup|ci|changed|version|release|package)
             MODE="$1"
             ;;
         full)
@@ -100,6 +104,9 @@ while [ "$#" -gt 0 ]; do
         --no-docker)
             DIST_DOCKER_OVERRIDE=0
             ;;
+        --skip-setup)
+            SKIP_SETUP=1
+            ;;
         -h|--help)
             usage
             exit 0
@@ -114,12 +121,17 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$MODE" in
+    setup)
+        RUN_DIST_VERIFY=0
+        DEFAULT_DIST_BIN=0
+        DEFAULT_DIST_DOCKER=0
+        ;;
     ci|changed)
         RUN_DIST_VERIFY=0
         DEFAULT_DIST_BIN=0
         DEFAULT_DIST_DOCKER=0
         ;;
-    version|release)
+    version|release|package)
         RUN_DIST_VERIFY=1
         DEFAULT_DIST_BIN=1
         DEFAULT_DIST_DOCKER=0
@@ -133,6 +145,13 @@ esac
 
 DIST_BIN="${DIST_BIN_OVERRIDE:-$DEFAULT_DIST_BIN}"
 DIST_DOCKER="${DIST_DOCKER_OVERRIDE:-$DEFAULT_DIST_DOCKER}"
+if [ -z "$WITH_NPX" ]; then
+    if [ "$MODE" = "package" ]; then
+        WITH_NPX=1
+    else
+        WITH_NPX=0
+    fi
+fi
 PROJECT_VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -n 1)"
 [ -n "$PROJECT_VERSION" ] || { echo "ERROR: could not read project version" >&2; exit 1; }
 WHEEL="dist/videoclaw-${PROJECT_VERSION}-py3-none-any.whl"
@@ -165,6 +184,11 @@ run_shell() {
 }
 
 resolve_python() {
+    if [ "$PRINT_PLAN" = "1" ]; then
+        PYTHON_BIN="${PYTHON_BIN:-python3}"
+        return 0
+    fi
+
     if [ -z "$PYTHON_BIN" ] && command -v uv >/dev/null 2>&1; then
         PYTHON_BIN="$(uv python find 3.12 2>/dev/null || true)"
     fi
@@ -175,10 +199,6 @@ resolve_python() {
         echo "ERROR: Python >=3.12 is required for wheel install checks" >&2
         exit 1
     }
-
-    if [ "$PRINT_PLAN" = "1" ]; then
-        return 0
-    fi
 
     "$PYTHON_BIN" - <<'PY'
 import sys
@@ -260,6 +280,35 @@ run_source_gates() {
     run_shell "uv run python packaging/manifest-validate.py packaging/agent-cli.yaml"
 }
 
+run_dependency_setup() {
+    step "Packaging dependency setup"
+    run_shell "command -v uv"
+    run_shell "uv python install 3.12"
+    run_shell "uv sync --extra dev"
+
+    if [ "$WITH_NPX" = "1" ]; then
+        run_shell "command -v npx"
+        run_shell "npx --version"
+    else
+        note "npx dependency check skipped; package mode enables it by default"
+    fi
+
+    if [ "$DIST_BIN" = "1" ]; then
+        run_shell "uv pip install pyinstaller"
+    else
+        note "PyInstaller install skipped; pass --with-bin when binary artifacts are required"
+    fi
+
+    if [ "$DIST_DOCKER" = "1" ]; then
+        run_shell "command -v docker"
+        run_shell "docker version"
+    else
+        note "Docker check skipped; pass --with-docker when image artifacts are required"
+    fi
+
+    note "For real E2E keys, run: bash packaging/setup.sh"
+}
+
 build_artifacts() {
     step "Distribution build"
     if [ "$RUN_DIST_VERIFY" = "1" ]; then
@@ -301,6 +350,16 @@ run_optional_external_e2e() {
 
 step "Agent CLI release gate"
 note "mode=$MODE version=$PROJECT_VERSION with_npx=$WITH_NPX real_llm=$REAL_LLM real_video=$REAL_VIDEO"
+
+if [ "$MODE" = "setup" ]; then
+    run_dependency_setup
+    step "Packaging dependency setup passed"
+    exit 0
+fi
+
+if [ "$MODE" = "package" ] && [ "$SKIP_SETUP" != "1" ]; then
+    run_dependency_setup
+fi
 
 run_source_gates
 build_artifacts

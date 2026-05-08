@@ -52,13 +52,26 @@ uv run claw setup
 For repository automation, the stable root command is:
 
 ```bash
-./agent-cli-release-gate.sh ci
+./agent-cli-release-gate.sh package
 ```
 
-Use it after normal source changes. It runs unit tests, lint, skills and
-manifest validators, builds a wheel, installs that wheel into a fresh venv,
-and verifies the packaged `claw` CLI can run `version` and
-`setup --dry-run --no-npx`.
+Use it before publishing artifacts for external coding agents. It prepares
+packaging dependencies, runs tests and validators, builds distribution
+artifacts, installs the rebuilt wheel into a fresh venv, and verifies the
+packaged `claw` CLI can run both `setup --dry-run --no-npx` and the
+`npx-skills` setup path.
+
+First-time host setup:
+
+```bash
+./agent-cli-release-gate.sh setup --with-npx --with-bin
+```
+
+Normal source-change gate:
+
+```bash
+./agent-cli-release-gate.sh ci
+```
 
 Version and release flow:
 
@@ -71,10 +84,12 @@ Version and release flow:
 Source changes do not require an immediate public release. Any artifact that
 will be handed to external coding agents does require a rebuild and fresh
 wheel-install verification before publishing. The order is: edit source, run
-`ci`, bump version if public behavior or bundled assets changed, run `version`,
-run `release --with-npx`, optionally run real-video E2E, then commit/tag/push.
+`ci`, bump version if public behavior or bundled assets changed, then run
+`package` or `release --with-npx`, optionally run real-video E2E, then
+commit/tag/push.
 
-See `docs/plans/2026-05-08-agent-cli-release-gate.md` for the full spec.
+See `AGENT_CLI_PACKAGING.md` for setup details and
+`docs/plans/2026-05-08-agent-cli-release-gate.md` for the spec.
 
 ## Per-agent quickstart
 

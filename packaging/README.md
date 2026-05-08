@@ -28,6 +28,10 @@ The MCP server lives in the sibling `mcp-shim/` tree; see `mcp-shim/README.md`.
 
 ```bash
 # Full agent-callable CLI gate from the repo root.
+./agent-cli-release-gate.sh setup --with-npx --with-bin
+./agent-cli-release-gate.sh package
+
+# Lower-level modes when a deployment agent needs a narrower check.
 ./agent-cli-release-gate.sh ci
 ./agent-cli-release-gate.sh version
 ./agent-cli-release-gate.sh release --with-npx
@@ -45,6 +49,9 @@ python packaging/manifest-validate.py packaging/agent-cli.yaml
 uv pip install -e mcp-shim/
 videoclaw-mcp-server                      # blocks on stdio for tools/list
 ```
+
+See `../AGENT_CLI_PACKAGING.md` for the root-level dependency setup and
+packaging sequence.
 
 ## Deferred (future milestones)
 
