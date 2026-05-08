@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from videoclaw.drama.cover_frame import CoverFrameGenerator, COVER_FRAME_PROMPT
+from videoclaw.drama.cover_frame import COVER_FRAME_PROMPT, CoverFrameGenerator
 from videoclaw.drama.models import Character, DramaScene, DramaSeries, Episode, ShotScale
 
 
@@ -69,6 +68,28 @@ class TestCoverFrameGenerator:
     def test_build_prompt_3_4_aspect(self):
         """The prompt template specifies 3:4 portrait."""
         assert "3:4" in COVER_FRAME_PROMPT
+
+    def test_without_injected_generator_uses_image_provider_resolver(self, monkeypatch):
+        resolved = MagicMock()
+        resolver = MagicMock(return_value=resolved)
+        fallback = MagicMock()
+
+        monkeypatch.setattr(
+            "videoclaw.drama.cover_frame.resolve_image_generator",
+            resolver,
+            raising=False,
+        )
+        monkeypatch.setattr(
+            "videoclaw.config.get_config",
+            lambda: MagicMock(byteplus_api_key=None, evolink_api_key="evolink-key"),
+        )
+        monkeypatch.setattr(
+            "videoclaw.generation.evolink_image.EvolinkImageGenerator",
+            lambda: fallback,
+        )
+
+        assert CoverFrameGenerator()._ensure_generator() is resolved
+        resolver.assert_called_once_with(image_provider=None, image_model=None)
 
     @pytest.mark.asyncio
     async def test_generate_cover_calls_generator(self, tmp_path):

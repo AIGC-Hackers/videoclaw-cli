@@ -37,7 +37,7 @@ bash packaging/setup.sh        # interactive wizard, writes ~/.config/videoclaw/
 Until videoclaw is on PyPI, install from a wheel URL:
 
 ```bash
-uvx --from https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.2/videoclaw-0.1.2-py3-none-any.whl videoclaw setup
+uvx --from https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.3/videoclaw-0.1.3-py3-none-any.whl videoclaw setup
 ```
 
 Or from local source (works today):
@@ -125,7 +125,7 @@ claw --json doctor
 ```bash
 # 1. Install (one-time)
 uvx --from <wheel-url> videoclaw setup
-# → installs videoclaw-* skills as videoclaw-workflow-0.1.2/, etc.
+# → installs videoclaw-* skills as videoclaw-workflow-0.1.3/, etc.
 #   into ~/.openclaw-autoclaw/skills/ (versioned naming convention)
 
 # 2. Verify
@@ -218,6 +218,9 @@ Any agent with a Bash tool can also call `claw` directly — see the
 ### CLI + Bash tool (universal)
 
 ```bash
+claw image "character turnaround sheet" \
+  --provider evolink --model gpt-image-2 \
+  --resolution 1K --quality medium
 claw drama new "<synopsis>" --title "<title>" --lang zh
 claw drama plan <series_id>
 claw drama design-characters <series_id>
@@ -225,6 +228,16 @@ claw drama design-scenes <series_id>
 claw drama run <series_id> --max-shots 3
 claw drama audit <series_id>
 claw drama export <series_id>
+```
+
+Image assets default to Evolink `gpt-image-2` at `resolution=1K` and
+`quality=medium`. Agents should use that for character turnaround sheets,
+scene/location references, props, cover frames, and direct `claw image`
+calls unless the user explicitly chooses another provider. BytePlus
+`seedream-5.0-lite` remains available as an explicit image fallback:
+
+```bash
+claw image "scene reference" --provider byteplus --model seedream-5.0-lite
 ```
 
 Every command supports `--json` for predictable parsing. Exit codes:
@@ -238,8 +251,9 @@ Every command supports `--json` for predictable parsing. Exit codes:
 | 4 | Blocked | read envelope `error` field |
 
 `claw doctor` returns 3 specifically when `VIDEOCLAW_EVOLINK_API_KEY`
-is missing — coding agents can branch on `$? == 3` to auto-trigger
-configuration.
+is missing. That key powers both the LLM gateway and default Evolink
+`gpt-image-2` image assets, so coding agents can branch on `$? == 3`
+to auto-trigger configuration.
 
 ### MCP shim (optional, secondary)
 
@@ -337,7 +351,7 @@ exit_codes (0-4), distribution channels, health_check.
 
 ```bash
 python packaging/skills-validate.py skills/
-# VALID: 5 skill(s) under skills conform (version 0.1.2)
+# VALID: 5 skill(s) under skills conform (version 0.1.3)
 ```
 
 ## Write-scope (M002 + M003)

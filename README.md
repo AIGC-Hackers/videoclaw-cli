@@ -28,12 +28,12 @@ VideoClaw gives your coding agent the **CLI commands and skills** to plan, desig
 
 ## Get Started
 
-**Prerequisites:** Python ≥ 3.12, [uv](https://docs.astral.sh/uv/getting-started/installation/), an Evolink LLM key, and (for real video) an ARK / Seedance key.
+**Prerequisites:** Python ≥ 3.12, [uv](https://docs.astral.sh/uv/getting-started/installation/), an Evolink key for LLM + default `gpt-image-2` image assets, and (for real video) an ARK / Seedance key.
 
 ### 1. Install the CLI + skills
 
 ```bash
-uvx --from https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.2/videoclaw-0.1.2-py3-none-any.whl videoclaw setup
+uvx --from https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.3/videoclaw-0.1.3-py3-none-any.whl videoclaw setup
 ```
 
 `claw setup` detects which coding agents are present and copies the
@@ -54,7 +54,7 @@ Use `claw setup --no-npx` to force the fallback explicitly, or
 - **From source (Python ≥ 3.12)** — `git clone … && uv sync && uv run claw --help`
 - **One-line installer (post-release)** — `curl -fsSL https://raw.githubusercontent.com/AIGC-Hackers/videoclaw-cli/main/install.sh | sh`
 - **Docker** — `docker build -t videoclaw-cli -f packaging/Dockerfile . && docker run --rm videoclaw-cli version`
-- **Wheel from GitHub Releases** — `pip install https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.2/videoclaw-0.1.2-py3-none-any.whl`
+- **Wheel from GitHub Releases** — `pip install https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.3/videoclaw-0.1.3-py3-none-any.whl`
 
 Full channel matrix: [`packaging/DISTRIBUTION-PLAN.md`](packaging/DISTRIBUTION-PLAN.md).
 
@@ -93,7 +93,7 @@ In a Claude Code conversation, say *"use videoclaw to make a drama"* — the `vi
 <summary><b>OpenClaw</b> — versioned skill names</summary>
 
 ```bash
-uvx --from <wheel-url> videoclaw setup    # → ~/.openclaw-autoclaw/skills/videoclaw-workflow-0.1.2/
+uvx --from <wheel-url> videoclaw setup    # → ~/.openclaw-autoclaw/skills/videoclaw-workflow-0.1.3/
 claw --json doctor
 ```
 Reference skills as `/videoclaw-workflow` in your orchestration prompts.
@@ -160,6 +160,7 @@ claw drama run <series_id> --max-shots 3                # generate first 3 shots
 | `claw version` | Print the version string. |
 | `claw --json doctor` | Health check (envelope + exit code). |
 | `claw --json info` | Registered models / drama series count. |
+| `claw image "<prompt>"` | Generate an image asset (defaults to Evolink `gpt-image-2`, `1K`, `medium`). |
 | `claw drama new "<synopsis>"` | Create a new series from a synopsis (LLM authors script). |
 | `claw drama import <script>` | Import a locked external script. |
 | `claw drama plan <id>` | Plan episode shots via LLM. |
@@ -179,6 +180,7 @@ claw setup [--dry-run] [--uninstall] [--copy] [--no-npx] [--agent <name>]
 claw version
 claw doctor [--json]
 claw info [--json]
+claw image <prompt> [--provider evolink] [--model gpt-image-2] [--resolution 1K] [--quality medium]
 claw generate <prompt>            # single-shot full pipeline
 claw stage-* …                    # 7 staged-pipeline commands
 
@@ -301,10 +303,13 @@ Run `bash packaging/setup.sh` (interactive wizard) — writes
 
 | Variable | Required | Description |
 |---|---|---|
-| `VIDEOCLAW_EVOLINK_API_KEY` | Yes | Evolink LLM gateway (Claude / GPT / Kimi / DeepSeek). |
+| `VIDEOCLAW_EVOLINK_API_KEY` | Yes | Evolink LLM gateway (Claude / GPT / Kimi / DeepSeek) and default `gpt-image-2` image assets. |
 | `VIDEOCLAW_ARK_API_KEY` | For Seedance | Seedance 2.0 video API. |
 | `VIDEOCLAW_DEFAULT_LLM` | No | Default LLM (default `claude-sonnet-4-6`). |
 | `VIDEOCLAW_DEFAULT_VIDEO_MODEL` | No | Default video model (default `seedance-2.0`; use `mock` for dry-run). |
+| `VIDEOCLAW_DEFAULT_IMAGE_PROVIDER` | No | Default image provider (default `evolink`; optional fallback `byteplus`). |
+| `VIDEOCLAW_DEFAULT_IMAGE_MODEL` | No | Default image model (default `gpt-image-2`; BytePlus fallback `seedream-5.0-lite`). |
+| `VIDEOCLAW_DEFAULT_IMAGE_RESOLUTION` / `VIDEOCLAW_DEFAULT_IMAGE_QUALITY` | No | Evolink image defaults (`1K` / `medium`). |
 | `VIDEOCLAW_PROJECTS_DIR` | No | Project storage path (default `./projects`). |
 | `VIDEOCLAW_BUDGET_DEFAULT_USD` | No | Budget cap (default `10.0`). |
 | `VIDEOCLAW_KLING_*` / `VIDEOCLAW_MINIMAX_API_KEY` / `VIDEOCLAW_BYTEPLUS_*` | Optional | Alternative video adapters. |

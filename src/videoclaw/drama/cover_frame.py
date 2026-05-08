@@ -13,13 +13,12 @@ Cover frame spec:
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from videoclaw.drama.models import DramaManager, DramaSeries
+from videoclaw.generation.image_provider import resolve_image_generator
 
 if TYPE_CHECKING:
     from videoclaw.drama.character_designer import ImageGenerator
@@ -58,24 +57,22 @@ class CoverFrameGenerator:
         self,
         image_generator: ImageGenerator | None = None,
         drama_manager: DramaManager | None = None,
+        image_provider: str | None = None,
+        image_model: str | None = None,
     ) -> None:
         self._img_gen = image_generator
         self._drama_mgr = drama_manager or DramaManager()
+        self._image_provider = image_provider
+        self._image_model = image_model
 
     def _ensure_generator(self) -> ImageGenerator:
-        """Same fallback logic as CharacterDesigner."""
         if self._img_gen is None:
-            try:
-                from videoclaw.config import get_config
-                cfg = get_config()
-                if cfg.byteplus_api_key:
-                    from videoclaw.generation.byteplus_image import BytePlusImageGenerator
-                    self._img_gen = BytePlusImageGenerator()
-                else:
-                    raise ValueError("No BytePlus API key")
-            except (ImportError, ValueError, OSError, RuntimeError):
-                from videoclaw.generation.evolink_image import EvolinkImageGenerator
-                self._img_gen = EvolinkImageGenerator()
+            self._img_gen = resolve_image_generator(
+                image_provider=self._image_provider,
+                image_model=self._image_model,
+            )
+            choices = getattr(self._img_gen, "choices", [])
+            logger.info("Using image provider candidates for cover frames: %s", choices)
         return self._img_gen
 
     async def generate_cover(

@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from videoclaw.drama.models import Character, DramaManager, DramaSeries
+from videoclaw.generation.image_provider import resolve_image_generator
 
 logger = logging.getLogger(__name__)
 
@@ -226,29 +227,24 @@ class CharacterDesigner:
         drama_manager: DramaManager | None = None,
         multi_angle: bool = True,
         turnaround: bool = True,
+        image_provider: str | None = None,
+        image_model: str | None = None,
     ) -> None:
         self._img_gen = image_generator
         self._drama_mgr = drama_manager or DramaManager()
         self._multi_angle = multi_angle
         self._turnaround = turnaround
+        self._image_provider = image_provider
+        self._image_model = image_model
 
     def _ensure_generator(self) -> ImageGenerator:
         if self._img_gen is None:
-            # Default to BytePlus Seedream for character turnaround generation
-            # Verify the API key is actually available before committing to BytePlus
-            try:
-                from videoclaw.config import get_config
-                cfg = get_config()
-                if cfg.byteplus_api_key:
-                    from videoclaw.generation.byteplus_image import BytePlusImageGenerator
-                    self._img_gen = BytePlusImageGenerator()
-                    logger.info("Using BytePlus Seedream for character images")
-                else:
-                    raise ValueError("No BytePlus API key")
-            except (ImportError, ValueError, OSError, RuntimeError):
-                from videoclaw.generation.evolink_image import EvolinkImageGenerator
-                self._img_gen = EvolinkImageGenerator()
-                logger.info("Using Evolink for character images (BytePlus unavailable)")
+            self._img_gen = resolve_image_generator(
+                image_provider=self._image_provider,
+                image_model=self._image_model,
+            )
+            choices = getattr(self._img_gen, "choices", [])
+            logger.info("Using image provider candidates for character images: %s", choices)
         return self._img_gen
 
     async def design_characters(

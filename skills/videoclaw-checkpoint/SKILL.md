@@ -12,11 +12,11 @@ description: >
 metadata:
   author: VideoClaw Contributors
   license: Modified-MIT
-  version: 0.1.2
+  version: 0.1.3
   requires:
     bins:
       - claw
-    install: "uvx --from https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.0/videoclaw-0.1.0-py3-none-any.whl videoclaw setup"
+    install: "uvx --from https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.3/videoclaw-0.1.3-py3-none-any.whl videoclaw setup"
 ---
 
 # Checkpoint Recovery
