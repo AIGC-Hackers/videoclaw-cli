@@ -207,12 +207,20 @@ def image(
         ),
     ],
     provider: Annotated[
-        str,
+        str | None,
         typer.Option(
             "--provider", "-p",
-            help="Image provider: gemini / evolink / byteplus.",
+            help="Image provider: gemini / evolink / byteplus. Defaults to config.",
         ),
-    ] = "gemini",
+    ] = None,
+    model: Annotated[
+        str | None,
+        typer.Option(
+            "--model",
+            "-m",
+            help="Image model id. Defaults to gpt-image-2 for Evolink.",
+        ),
+    ] = None,
     size: Annotated[
         str,
         typer.Option(
@@ -220,6 +228,14 @@ def image(
             help="Image aspect ratio (e.g. 3:4, 1:1, 16:9).",
         ),
     ] = "3:4",
+    resolution: Annotated[
+        str | None,
+        typer.Option("--resolution", help="Image resolution tier for Evolink."),
+    ] = None,
+    quality: Annotated[
+        str | None,
+        typer.Option("--quality", help="Image quality for Evolink: low / medium / high."),
+    ] = None,
     output: Annotated[
         str | None, typer.Option("--output", "-o", help="Output file path.")
     ] = None,
@@ -232,8 +248,8 @@ def image(
     \b
     Examples:
       claw image "a beautiful sunset" -o sunset.png
-      claw image "character portrait" --provider gemini --size 3:4
-      claw image "product photo" --provider evolink -o product.png
+      claw image "character portrait" --provider evolink --model gpt-image-2 --size 3:4
+      claw image "product photo" --provider byteplus --model seedream-5.0-lite -o product.png
     """
     configure_logging(verbose)
     out = get_output()
@@ -243,7 +259,10 @@ def image(
         asyncio.run(_image_async(
             prompt=prompt,
             provider=provider,
+            model=model,
             size=size,
+            resolution=resolution,
+            quality=quality,
             output_path=output,
         ))
     except Exception as exc:
@@ -253,33 +272,60 @@ def image(
 
 
 async def _image_async(
-    *, prompt: str, provider: str, size: str, output_path: str | None,
+    *,
+    prompt: str,
+    provider: str | None,
+    model: str | None,
+    size: str,
+    resolution: str | None,
+    quality: str | None,
+    output_path: str | None,
 ) -> None:
     console = get_console()
     out = get_output()
 
     console.print(f"[cyan]Generating image:[/cyan] {prompt[:80]}")
-    console.print(f"  Provider: {provider}  |  Size: {size}")
+    from videoclaw.config import get_config
+
+    cfg = get_config()
+    effective_provider = (provider or cfg.default_image_provider or "evolink").strip().lower()
+    effective_model = model or _default_image_model_for_provider(
+        effective_provider,
+        config_default=provider is None,
+    )
+    effective_resolution = resolution or cfg.default_image_resolution
+    effective_quality = quality or cfg.default_image_quality
+    console.print(
+        f"  Provider: {effective_provider}  |  Model: {effective_model}  |  Size: {size}"
+        f"  |  Resolution: {effective_resolution}  |  Quality: {effective_quality}"
+    )
 
     with console.status("[cyan]Generating...", spinner="dots"):
-        if provider == "gemini":
+        if effective_provider == "gemini":
             from videoclaw.generation.gemini_image import GeminiImageGenerator
-            gemini_gen = GeminiImageGenerator()
-            image_path = await gemini_gen.generate(prompt=prompt, aspect_ratio=size, output_dir=Path("."))
-        elif provider == "evolink":
+            gemini_gen = GeminiImageGenerator(model=effective_model)
+            image_path = await gemini_gen.generate(prompt=prompt, size=size, output_dir=Path("."))
+        elif effective_provider == "evolink":
             from videoclaw.generation.evolink_image import EvolinkImageGenerator
             evolink_gen = EvolinkImageGenerator()
-            image_path = await evolink_gen.generate(prompt=prompt, aspect_ratio=size, output_dir=Path("."))
-        elif provider == "byteplus":
+            image_path = await evolink_gen.generate(
+                prompt=prompt,
+                model=effective_model,
+                size=size,
+                resolution=effective_resolution,
+                quality=effective_quality,
+                output_dir=Path("."),
+            )
+        elif effective_provider == "byteplus":
             from videoclaw.generation.byteplus_image import BytePlusImageGenerator
-            byteplus_gen = BytePlusImageGenerator()
-            image_path = await byteplus_gen.generate(prompt=prompt, aspect_ratio=size, output_dir=Path("."))
+            byteplus_gen = BytePlusImageGenerator(model=effective_model)
+            image_path = await byteplus_gen.generate(prompt=prompt, size=size, output_dir=Path("."))
         else:
             console.print(
-                f"[red]Unknown provider {provider!r}."
+                f"[red]Unknown provider {effective_provider!r}."
                 " Valid: gemini, evolink, byteplus[/red]"
             )
-            out.set_error(f"Unknown provider: {provider}")
+            out.set_error(f"Unknown provider: {effective_provider}")
             out.emit()
             raise typer.Exit(code=1)
 
@@ -292,14 +338,34 @@ async def _image_async(
         console.print(f"[bold green]Image saved:[/bold green] {image_path}")
         out.set_result({
             "path": str(image_path.resolve()),
-            "provider": provider,
+            "provider": effective_provider,
+            "model": effective_model,
             "size": size,
+            "resolution": effective_resolution,
+            "quality": effective_quality,
         })
     else:
         console.print("[red]Image generation failed.[/red]")
         out.set_error("Image generation failed.")
 
     out.emit()
+
+
+def _default_image_model_for_provider(provider: str, *, config_default: bool = False) -> str:
+    if config_default:
+        from videoclaw.config import get_config
+
+        configured_model = get_config().default_image_model
+        if provider == "evolink" or configured_model != "gpt-image-2":
+            return configured_model
+    if provider == "evolink":
+        return "gpt-image-2"
+    if provider == "byteplus":
+        return "seedream-5.0-lite"
+    if provider == "gemini":
+        from videoclaw.generation.gemini_image import DEFAULT_MODEL
+        return DEFAULT_MODEL
+    return "gpt-image-2"
 
 
 # ---------------------------------------------------------------------------

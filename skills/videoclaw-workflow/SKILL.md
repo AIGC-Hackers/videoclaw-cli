@@ -15,11 +15,11 @@ description: >
 metadata:
   author: VideoClaw Contributors
   license: Modified-MIT
-  version: 0.1.2
+  version: 0.1.3
   requires:
     bins:
       - claw
-    install: "uvx --from https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.0/videoclaw-0.1.0-py3-none-any.whl videoclaw setup"
+    install: "uvx --from https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.3/videoclaw-0.1.3-py3-none-any.whl videoclaw setup"
 ---
 
 # VideoClaw Drama Production Workflow
@@ -36,7 +36,8 @@ output a 50–90s episode through the
 **setup → plan → design → preview → generate → audit → export**
 lifecycle.
 
-> Requires: videoclaw ≥ 0.1.0 with Evolink LLM key configured. Run
+> Requires: videoclaw ≥ 0.1.0 with Evolink key configured for LLM and
+> default `gpt-image-2` image assets. Run
 > `claw --json doctor` first; if it returns exit 3, load
 > `/videoclaw-troubleshoot` to fix the auth path.
 
@@ -55,7 +56,10 @@ these and **wait for answers** — do not assume:
    genres (`thriller`, `romance`, `comedy`) acceptable.
 5. **Video model preference?** — default `seedance-2.0`. If the user
    has cost / region constraints, load `/videoclaw-models`.
-6. **Any constraints on faces?** — Seedance Privacy Information filter
+6. **Image asset provider?** — default Evolink `gpt-image-2`
+   (`1K`, `medium`). BytePlus `seedream-5.0-lite` is an optional
+   explicit fallback, not the default.
+7. **Any constraints on faces?** — Seedance Privacy Information filter
    rejects realistic women's faces; turnarounds must be stylized.
 
 Once answered, persist intent in a working note (e.g. project memo)
@@ -95,6 +99,25 @@ claw drama design-characters <series_id>     # Universal Reference turnaround sh
 claw drama design-scenes <series_id>         # location reference images
 claw drama design-cover <series_id> --episode 1  # TikTok thumbnail
 claw drama assign-voices <series_id>         # TTS voice profile per character
+```
+
+Default image asset generation uses Evolink `gpt-image-2` at
+`resolution=1K` and `quality=medium` for character turnaround sheets,
+scene/location references, props, and cover frames. For direct image
+checks, use:
+
+```bash
+claw image "location reference, cinematic motel exterior" \
+  --provider evolink --model gpt-image-2 --size 16:9 \
+  --resolution 1K --quality medium
+```
+
+Only use BytePlus as an explicit fallback when requested or when
+Evolink image access is unavailable:
+
+```bash
+claw image "character turnaround sheet" \
+  --provider byteplus --model seedream-5.0-lite --size 3:4
 ```
 
 If reference image URLs become stale (Seedance refuses base64; uses

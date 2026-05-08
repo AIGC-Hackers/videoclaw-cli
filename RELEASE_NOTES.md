@@ -4,6 +4,39 @@ All notable changes to videoclaw are documented in this file. Format
 follows the google/agents-cli style — `## [<version>] - YYYY-MM-DD`
 with grouped bullets.
 
+## [0.1.3] - 2026-05-08
+
+Makes Evolink `gpt-image-2` the default image asset generator for coding-agent
+drama workflows and packaged CLI use.
+
+### Behavior
+
+- Image defaults now prefer Evolink `gpt-image-2` with `resolution=1K` and
+  `quality=medium`.
+- Character, scene, prop, and cover asset generation use a shared provider
+  resolver that tries `gpt-image-2` first unless a provider is explicitly
+  configured.
+- BytePlus `seedream-5.0-lite` remains available as an explicit or configured
+  fallback, but no longer outranks Evolink image generation.
+- `claw image` defaults to the configured image provider and exposes
+  `--model`, `--resolution`, and `--quality`.
+- `claw drama design-characters`, `design-scenes`, and `design-cover` now
+  accept `--image-provider` and `--image-model` overrides.
+
+### Agent CLI
+
+- Skills and top-level docs now tell coding agents to use Evolink
+  `gpt-image-2` for character sheets, location references, props, cover frames,
+  and direct image smoke tests.
+- Release metadata, install script defaults, manifest version, and skill
+  metadata are aligned to `0.1.3`.
+
+### Tests
+
+- Added unit coverage for Evolink `gpt-image-2` payload defaults, async task
+  polling, `image_urls` passthrough, provider fallback ordering, direct
+  `claw image` defaults, and drama design image override flags.
+
 ## [0.1.2] - 2026-05-07
 
 Stabilizes the packaged Codex / coding-agent drama workflow with Sonnet

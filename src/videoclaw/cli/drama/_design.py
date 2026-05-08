@@ -1,4 +1,4 @@
-"""``design-characters``, ``refresh-urls``, ``design-scenes``, ``assign-voices``, ``design-cover``."""
+"""Drama design commands for visual assets and voices."""
 
 from __future__ import annotations
 
@@ -30,6 +30,14 @@ def drama_design_characters(
     force: Annotated[
         bool, typer.Option("--force", "-f", help="Regenerate existing images.")
     ] = False,
+    image_provider: Annotated[
+        str | None,
+        typer.Option("--image-provider", help="Image provider override: evolink / byteplus."),
+    ] = None,
+    image_model: Annotated[
+        str | None,
+        typer.Option("--image-model", help="Image model override, e.g. gpt-image-2."),
+    ] = None,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
     """Generate reference images for characters in a drama series."""
@@ -59,14 +67,16 @@ def drama_design_characters(
         Panel(
             f"[bold]Series:[/bold]     {series.title}\n"
             f"[bold]Characters:[/bold] {len(series.characters)}\n"
-            f"[bold]Force:[/bold]      {force}",
+            f"[bold]Force:[/bold]      {force}\n"
+            f"[bold]Provider:[/bold]   {image_provider or 'default'}\n"
+            f"[bold]Model:[/bold]      {image_model or 'default'}",
             title="[bold cyan]Character Design[/bold cyan]",
             border_style="cyan",
         )
     )
 
     try:
-        asyncio.run(_design_characters_async(series, mgr, force))
+        asyncio.run(_design_characters_async(series, mgr, force, image_provider, image_model))
     except Exception as exc:
         out.set_error(str(exc))
         out.emit()
@@ -78,16 +88,28 @@ def drama_design_characters(
             {"name": c.name, "reference_image": c.reference_image}
             for c in series.characters
         ],
+        "image_provider": image_provider,
+        "image_model": image_model,
     })
     out.emit()
 
 
-async def _design_characters_async(series: DramaSeries, mgr: DramaManager, force: bool) -> None:
+async def _design_characters_async(
+    series: DramaSeries,
+    mgr: DramaManager,
+    force: bool,
+    image_provider: str | None,
+    image_model: str | None,
+) -> None:
     console = get_console()
 
     from videoclaw.drama.character_designer import CharacterDesigner
 
-    designer = CharacterDesigner(drama_manager=mgr)
+    designer = CharacterDesigner(
+        drama_manager=mgr,
+        image_provider=image_provider,
+        image_model=image_model,
+    )
 
     with console.status("[cyan]Generating character reference images...", spinner="dots"):
         series = await designer.design_characters(series, force=force)
@@ -214,6 +236,14 @@ def drama_design_scenes(
     force: Annotated[
         bool, typer.Option("--force", "-f", help="Regenerate existing images.")
     ] = False,
+    image_provider: Annotated[
+        str | None,
+        typer.Option("--image-provider", help="Image provider override: evolink / byteplus."),
+    ] = None,
+    image_model: Annotated[
+        str | None,
+        typer.Option("--image-model", help="Image model override, e.g. gpt-image-2."),
+    ] = None,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
     """Generate reference images for unique scene locations in a drama series."""
@@ -243,29 +273,45 @@ def drama_design_scenes(
         Panel(
             f"[bold]Series:[/bold]   {series.title}\n"
             f"[bold]Episodes:[/bold] {len(series.episodes)}\n"
-            f"[bold]Force:[/bold]    {force}",
+            f"[bold]Force:[/bold]    {force}\n"
+            f"[bold]Provider:[/bold] {image_provider or 'default'}\n"
+            f"[bold]Model:[/bold]    {image_model or 'default'}",
             title="[bold cyan]Scene Design[/bold cyan]",
             border_style="cyan",
         )
     )
 
     try:
-        asyncio.run(_design_scenes_async(series, mgr, force))
+        asyncio.run(_design_scenes_async(series, mgr, force, image_provider, image_model))
     except Exception as exc:
         out.set_error(str(exc))
         out.emit()
         raise typer.Exit(code=1)
 
-    out.set_result({"series_id": series.series_id})
+    out.set_result({
+        "series_id": series.series_id,
+        "image_provider": image_provider,
+        "image_model": image_model,
+    })
     out.emit()
 
 
-async def _design_scenes_async(series: DramaSeries, mgr: DramaManager, force: bool) -> None:
+async def _design_scenes_async(
+    series: DramaSeries,
+    mgr: DramaManager,
+    force: bool,
+    image_provider: str | None,
+    image_model: str | None,
+) -> None:
     console = get_console()
 
     from videoclaw.drama.scene_designer import SceneDesigner
 
-    designer = SceneDesigner(drama_manager=mgr)
+    designer = SceneDesigner(
+        drama_manager=mgr,
+        image_provider=image_provider,
+        image_model=image_model,
+    )
 
     # --- Scene locations ---
     with console.status("[cyan]Generating scene reference images...", spinner="dots"):
@@ -398,6 +444,14 @@ def drama_design_cover(
     force: Annotated[
         bool, typer.Option("--force", "-f", help="Regenerate existing cover.")
     ] = False,
+    image_provider: Annotated[
+        str | None,
+        typer.Option("--image-provider", help="Image provider override: evolink / byteplus."),
+    ] = None,
+    image_model: Annotated[
+        str | None,
+        typer.Option("--image-model", help="Image model override, e.g. gpt-image-2."),
+    ] = None,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
     """Generate a cover frame (TikTok thumbnail) for an episode."""
@@ -428,14 +482,16 @@ def drama_design_cover(
         Panel(
             f"[bold]Series:[/bold]  {series.title}\n"
             f"[bold]Episode:[/bold] EP{episode:02d} — {ep.title}\n"
-            f"[bold]Force:[/bold]   {force}",
+            f"[bold]Force:[/bold]   {force}\n"
+            f"[bold]Provider:[/bold] {image_provider or 'default'}\n"
+            f"[bold]Model:[/bold]    {image_model or 'default'}",
             title="[bold cyan]Cover Frame Generation[/bold cyan]",
             border_style="cyan",
         )
     )
 
     try:
-        path = asyncio.run(_design_cover_async(series, ep, mgr, force))
+        path = asyncio.run(_design_cover_async(series, ep, mgr, force, image_provider, image_model))
     except Exception as exc:
         out.set_error(str(exc))
         out.emit()
@@ -446,18 +502,29 @@ def drama_design_cover(
         "series_id": series.series_id,
         "episode": episode,
         "cover_frame_path": str(path),
+        "image_provider": image_provider,
+        "image_model": image_model,
     })
     out.emit()
 
 
 async def _design_cover_async(
-    series: DramaSeries, ep: Episode, mgr: DramaManager, force: bool,
+    series: DramaSeries,
+    ep: Episode,
+    mgr: DramaManager,
+    force: bool,
+    image_provider: str | None,
+    image_model: str | None,
 ) -> Path:
     console = get_console()
 
     from videoclaw.drama.cover_frame import CoverFrameGenerator
 
-    gen = CoverFrameGenerator(drama_manager=mgr)
+    gen = CoverFrameGenerator(
+        drama_manager=mgr,
+        image_provider=image_provider,
+        image_model=image_model,
+    )
 
     with console.status("[cyan]Generating cover frame...", spinner="dots"):
         path = await gen.generate_cover(series, ep, force=force)

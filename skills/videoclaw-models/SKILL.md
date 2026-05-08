@@ -6,19 +6,20 @@ description: >
   mock", "切视频模型", or invokes `claw model list` / `claw model pull`.
   Also load before `claw drama run` so the agent picks the adapter that
   matches the user's quality / cost / region constraints. Covers the
-  registered adapters, the Seedance HTTPS-URL constraint, and the
-  "stylized faces only" Privacy Information rule.
+  registered adapters, Evolink gpt-image-2 image defaults, BytePlus
+  seedream-5.0-lite image fallback, the Seedance HTTPS-URL constraint,
+  and the "stylized faces only" Privacy Information rule.
 metadata:
   author: VideoClaw Contributors
   license: Modified-MIT
-  version: 0.1.2
+  version: 0.1.3
   requires:
     bins:
       - claw
-    install: "uvx --from https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.0/videoclaw-0.1.0-py3-none-any.whl videoclaw setup"
+    install: "uvx --from https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.3/videoclaw-0.1.3-py3-none-any.whl videoclaw setup"
 ---
 
-# Video Adapter Selection
+# Video And Image Adapter Selection
 
 > **STOP — check `claw model list` first.** The set of healthy
 > adapters depends on which API keys are configured. Selecting an
@@ -90,6 +91,24 @@ Map of adapter → key (see `claw doctor --json` for status):
 LLM keys (for script writing, audit) live in
 `VIDEOCLAW_EVOLINK_API_KEY` and route to Claude / GPT / Kimi /
 DeepSeek through one gateway.
+
+## Image asset defaults
+
+Image assets default to Evolink `gpt-image-2` with `resolution=1K`
+and `quality=medium`. Use this for character turnaround sheets,
+scene/location references, props, cover frames, and direct one-off
+images:
+
+```bash
+claw image "character turnaround sheet" \
+  --provider evolink --model gpt-image-2 --size 3:4 \
+  --resolution 1K --quality medium
+```
+
+BytePlus remains an optional fallback for image generation. When the
+user explicitly asks for BytePlus image assets, prefer
+`--provider byteplus --model seedream-5.0-lite`. Do not confuse
+`seedream-5.0-lite` (image) with `seedance-*` (video).
 
 ## Hard constraints (read these before designing assets)
 

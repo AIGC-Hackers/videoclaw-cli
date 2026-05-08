@@ -5,18 +5,19 @@ description: >
   non-zero, the user reports an error, "claw 报错", "为什么生成失败",
   or one of these specific symptoms: Seedance privacy-information
   rejection on realistic faces, base64 data-URI rejected by Seedance
-  proxy, EdgeTTS voice_id mismatch, Evolink rate limiting, missing API
-  key, doctor returns 3, install.sh reports unsupported OS. Also use
-  to interpret videoclaw's exit-code contract
+  proxy, EdgeTTS voice_id mismatch, Evolink gpt-image-2 auth/quota or
+  model-access failure, Evolink rate limiting, missing API key, doctor
+  returns 3, install.sh reports unsupported OS. Also use to interpret
+  videoclaw's exit-code contract
   (0 ok / 1 runtime / 2 usage / 3 auth / 4 blocked).
 metadata:
   author: VideoClaw Contributors
   license: Modified-MIT
-  version: 0.1.2
+  version: 0.1.3
   requires:
     bins:
       - claw
-    install: "uvx --from https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.0/videoclaw-0.1.0-py3-none-any.whl videoclaw setup"
+    install: "uvx --from https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.3/videoclaw-0.1.3-py3-none-any.whl videoclaw setup"
 ---
 
 # Troubleshooting & Doctor
@@ -63,7 +64,8 @@ claw --json doctor
 
 The envelope's `data` field includes per-key health for:
 
-- `VIDEOCLAW_EVOLINK_API_KEY` — LLM gateway (required)
+- `VIDEOCLAW_EVOLINK_API_KEY` — LLM gateway and default
+  `gpt-image-2` image assets (required)
 - `VIDEOCLAW_ARK_API_KEY` — Seedance video (required for real video)
 - `VIDEOCLAW_KLING_*` / `VIDEOCLAW_MINIMAX_API_KEY` /
   `VIDEOCLAW_BYTEPLUS_*` / `VIDEOCLAW_ZHIPU_API_KEY` /
@@ -139,16 +141,48 @@ claw --json doctor             # should now exit 0
 
 ### `429 Too Many Requests` — Evolink rate limit
 
-**Symptom**: `drama plan` / `drama script` returns 1 with stderr
-mentioning rate limit on the LLM gateway.
+**Symptom**: `drama plan`, `drama script`, `drama design-*`, or
+`claw image` returns 1 with stderr mentioning rate limit on the
+Evolink gateway.
 
-**Fix**: Wait ~60s and retry. If persistent:
+**Fix**: Wait ~60s and retry. If persistent for LLM planning:
 
 ```bash
 # Override default model to something less rate-limited
 export VIDEOCLAW_DEFAULT_LLM=claude-sonnet-4-6  # stronger structured output
 claw drama plan <series_id>
 ```
+
+If the rate limit is specifically for image assets, keep Evolink
+`gpt-image-2` as the preferred default and use BytePlus
+`seedream-5.0-lite` only as an explicit fallback:
+
+```bash
+claw image "scene reference" --provider byteplus --model seedream-5.0-lite
+```
+
+### Evolink `gpt-image-2` auth / quota / model-access failure
+
+**Symptom**: `claw image` or `drama design-characters` /
+`design-scenes` / `design-cover` fails with 401, 403, quota exceeded,
+or a message that `gpt-image-2` is unavailable.
+
+**Cause**: Image assets default to Evolink `gpt-image-2`
+(`resolution=1K`, `quality=medium`) and require a valid
+`VIDEOCLAW_EVOLINK_API_KEY` with image-generation access.
+
+**Fix**:
+
+```bash
+claw --json doctor
+export VIDEOCLAW_EVOLINK_API_KEY=sk-...
+claw image "smoke test" --provider evolink --model gpt-image-2 \
+  --resolution 1K --quality medium
+```
+
+If the key is valid but the account lacks `gpt-image-2` access, ask
+the provider to enable it or temporarily use explicit BytePlus image
+fallback: `--provider byteplus --model seedream-5.0-lite`.
 
 ### EdgeTTS voice fallback warning
 

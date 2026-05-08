@@ -14,7 +14,7 @@ schema: agent-cli/v1
 # --- Identity ---
 name: videoclaw
 binary: claw
-version: "0.1.2"
+version: "0.1.3"
 description: |
   Agent OS for AI video generation — TikTok-format Western live-action drama
   pipeline (drama plan → design → generate → audit → export).

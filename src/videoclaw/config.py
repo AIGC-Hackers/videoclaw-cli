@@ -42,6 +42,10 @@ def get_config() -> Any:
         # --- Model defaults ---
         default_llm: str = "claude-sonnet-4-6"
         default_video_model: str = "seedance-2.0"
+        default_image_provider: str = "evolink"
+        default_image_model: str = "gpt-image-2"
+        default_image_resolution: str = "1K"
+        default_image_quality: str = "medium"
 
         # --- Language ---
         default_language: str = "zh"

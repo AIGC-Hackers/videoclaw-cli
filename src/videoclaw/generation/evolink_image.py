@@ -1,4 +1,4 @@
-"""Image generation via Evolink Seedream 5.0 API.
+"""Image generation via Evolink image API.
 
 Provides an async client that submits image generation tasks, polls for
 completion, downloads results, and returns local file paths.
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class EvolinkImageGenerator(BaseImageGenerator):
-    """Generates images via the Evolink Seedream 5.0 API."""
+    """Generates images via the Evolink image API."""
 
     _poll_interval = 5.0
     _poll_timeout = 180.0
@@ -50,9 +50,10 @@ class EvolinkImageGenerator(BaseImageGenerator):
         *,
         output_dir: Path,
         filename: str = "image.png",
-        model: str = "doubao-seedream-5.0-lite",
+        model: str | None = None,
         size: str = "3:4",
-        quality: str = "2K",
+        resolution: str | None = None,
+        quality: str | None = None,
         reference_urls: list[str] | None = None,
         **kwargs: Any,
     ) -> Path:
@@ -64,24 +65,29 @@ class EvolinkImageGenerator(BaseImageGenerator):
         ----------
         size:
             Ratio format (``"1:1"``, ``"3:4"``, ``"16:9"``, ``"auto"``) or
-            pixel format (``"2048x2048"``).  Seedream 5.0 does NOT accept
-            raw pixel dimensions separated by ``:``.
+            pixel format (``"1024x1024"``).
         """
+        cfg = get_config()
+        model = model or cfg.default_image_model
+        resolution = resolution or cfg.default_image_resolution
+        quality = quality or cfg.default_image_quality
         output_path = self._ensure_dir(output_dir, filename)
 
         body: dict[str, Any] = {
             "model": model,
             "prompt": prompt,
             "size": size,
+            "resolution": resolution,
             "quality": quality,
             "n": 1,
         }
-        if reference_urls:
-            body["image_urls"] = reference_urls
+        image_urls = reference_urls if reference_urls is not None else kwargs.get("image_urls")
+        if image_urls:
+            body["image_urls"] = image_urls
 
         logger.info(
-            "Submitting image generation: model=%s size=%s prompt=%.60s...",
-            model, size, prompt,
+            "Submitting image generation: model=%s size=%s resolution=%s prompt=%.60s...",
+            model, size, resolution, prompt,
         )
 
         async with httpx.AsyncClient(timeout=60.0) as client:
