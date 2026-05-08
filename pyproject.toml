@@ -1,6 +1,6 @@
 [project]
 name = "videoclaw"
-version = "0.1.0"
+version = "0.1.2"
 description = "The Agent OS for AI Video Generation"
 readme = "README.md"
 license = { text = "Modified-MIT" }
@@ -27,6 +27,7 @@ dependencies = [
     "litellm>=1.55.0",
     "aiosqlite>=0.20.0",
     "zhipuai>=2.1.0",
+    "edge-tts>=7.0.0",
 ]
 
 [project.optional-dependencies]
@@ -72,6 +73,13 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/videoclaw"]
+
+# Bundle the top-level `skills/` directory into the wheel as
+# videoclaw/_skills/ so `claw setup` can install them via
+# importlib.resources at runtime, even from a uv-tool / wheel install
+# where the original repo isn't present.
+[tool.hatch.build.targets.wheel.force-include]
+"skills" = "videoclaw/_skills"
 
 [tool.ruff]
 target-version = "py312"

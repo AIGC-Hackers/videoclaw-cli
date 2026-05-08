@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -41,9 +40,12 @@ def mock_drama_manager(tmp_path):
 
 
 @pytest.fixture
-def mock_image_generator():
+def mock_image_generator(tmp_path):
+    image_path = tmp_path / "alice.png"
+    image_path.write_bytes(b"fake image")
     gen = MagicMock()
-    gen.generate = AsyncMock(return_value=Path("/tmp/alice.png"))
+    gen.last_image_url = "https://example.com/alice.png"
+    gen.generate = AsyncMock(return_value=image_path)
     return gen
 
 
@@ -125,12 +127,107 @@ async def test_skips_character_with_existing_image(mock_image_generator, mock_dr
         drama_manager=mock_drama_manager,
     )
     series = _make_series("en")
-    series.characters[0].reference_image = "/existing/path.png"
-    series.characters[0].reference_images = ["/existing/front.png", "/existing/3q.png", "/existing/full.png"]
+    existing = mock_drama_manager.base_dir / "existing.png"
+    existing.write_bytes(b"fake image")
+    series.characters[0].reference_image = str(existing)
+    series.characters[0].reference_images = [str(existing)]
+    series.characters[0].reference_image_url = "https://example.com/existing.png"
 
     await designer.design_characters(series)
 
     mock_image_generator.generate.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_regenerates_stale_existing_turnaround(mock_image_generator, mock_drama_manager):
+    """A recorded but missing turnaround path is not accepted as complete."""
+    designer = CharacterDesigner(
+        image_generator=mock_image_generator,
+        drama_manager=mock_drama_manager,
+    )
+    series = _make_series("en")
+    missing = mock_drama_manager.base_dir / "missing.png"
+    series.characters[0].reference_image = str(missing)
+    series.characters[0].reference_images = [str(missing)]
+    series.characters[0].reference_image_url = None
+
+    await designer.design_characters(series)
+
+    mock_image_generator.generate.assert_awaited_once()
+    assert series.characters[0].reference_image != str(missing)
+    assert series.characters[0].reference_image_url == "https://example.com/alice.png"
+
+
+@pytest.mark.asyncio
+async def test_turnaround_generation_retries_transient_failure(tmp_path, mock_drama_manager):
+    """Transient image API errors are retried before the design stage fails."""
+    image_path = tmp_path / "alice-retry.png"
+    image_path.write_bytes(b"fake image")
+    gen = MagicMock()
+    gen.last_image_url = "https://example.com/alice-retry.png"
+    gen.generate = AsyncMock(side_effect=[OSError("EndOfStream"), image_path])
+    designer = CharacterDesigner(image_generator=gen, drama_manager=mock_drama_manager)
+    series = _make_series("en")
+
+    await designer.design_characters(series)
+
+    assert gen.generate.await_count == 2
+    assert series.characters[0].reference_image == str(image_path)
+    assert series.characters[0].reference_image_url == "https://example.com/alice-retry.png"
+
+
+@pytest.mark.asyncio
+async def test_turnaround_generation_requires_https_url(tmp_path, mock_drama_manager):
+    """Default turnaround design must capture the HTTPS URL needed by Seedance."""
+    image_path = tmp_path / "alice-no-url.png"
+    image_path.write_bytes(b"fake image")
+    gen = MagicMock()
+    gen.last_image_url = None
+    gen.generate = AsyncMock(return_value=image_path)
+    designer = CharacterDesigner(image_generator=gen, drama_manager=mock_drama_manager)
+    series = _make_series("en")
+
+    with pytest.raises(RuntimeError, match="HTTPS URL"):
+        await designer.design_characters(series)
+
+
+@pytest.mark.asyncio
+async def test_refresh_urls_raises_when_url_refresh_fails(tmp_path, mock_drama_manager):
+    """URL refresh should not report success with an empty character URL."""
+    image_path = tmp_path / "alice-refresh.png"
+    image_path.write_bytes(b"fake image")
+    gen = MagicMock()
+    gen.last_image_url = None
+    gen.generate = AsyncMock(return_value=image_path)
+    designer = CharacterDesigner(image_generator=gen, drama_manager=mock_drama_manager)
+    series = _make_series("en")
+
+    with pytest.raises(RuntimeError, match="Alice"):
+        await designer.refresh_urls(series)
+
+
+@pytest.mark.asyncio
+async def test_refresh_urls_preserves_existing_file_when_regeneration_fails(
+    mock_drama_manager,
+):
+    """A failed refresh must not delete the last usable local reference file."""
+    existing = mock_drama_manager.base_dir / "test_series" / "characters" / "Alice_turnaround.png"
+    existing.parent.mkdir(parents=True)
+    existing.write_bytes(b"old image")
+    gen = MagicMock()
+    gen.last_image_url = None
+    gen.generate = AsyncMock(side_effect=OSError("network unavailable"))
+    designer = CharacterDesigner(image_generator=gen, drama_manager=mock_drama_manager)
+    series = _make_series("en")
+    series.characters[0].reference_image = str(existing)
+    series.characters[0].reference_images = [str(existing)]
+    series.characters[0].reference_image_url = None
+
+    with pytest.raises(RuntimeError, match="Alice"):
+        await designer.refresh_urls(series)
+
+    assert existing.is_file()
+    assert series.characters[0].reference_image == str(existing)
 
 
 # ---------------------------------------------------------------------------

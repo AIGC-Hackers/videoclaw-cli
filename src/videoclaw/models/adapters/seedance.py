@@ -63,6 +63,7 @@ import os
 import subprocess
 import time
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -137,6 +138,59 @@ _POLL_MAX_INTERVAL = 30.0     # cap (seconds)
 _POLL_INTERVAL_S = 10.0       # legacy constant kept for backwards compat
 _POLL_TIMEOUT_S = 6000.0  # 100 minutes max
 _HTTP_TIMEOUT_S = 120.0
+_PRIVACY_ERROR_MARKER = "PrivacyInformation"
+
+
+def _coalesce_text_content(content: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return content with at most one text entry.
+
+    The vectorspace.cn Seedance proxy accepts multiple image entries but rejects
+    requests with more than one text entry. Prompt segments are still useful for
+    choosing which references to attach; the final API payload must flatten the
+    text back into a single prompt.
+    """
+    text_parts = [
+        str(item.get("text", "")).strip()
+        for item in content
+        if item.get("type") == "text" and str(item.get("text", "")).strip()
+    ]
+    media_items = [item for item in content if item.get("type") != "text"]
+
+    if not text_parts:
+        return media_items
+
+    return [{"type": "text", "text": " ".join(text_parts)}, *media_items]
+
+
+def _has_reference_media(request: GenerationRequest) -> bool:
+    """Return True if request contains image references Seedance may reject."""
+    extra = request.extra
+    return bool(
+        request.reference_image
+        or extra.get("prompt_segments")
+        or extra.get("image_urls")
+        or extra.get("image_paths")
+        or extra.get("additional_references")
+    )
+
+
+def _without_reference_media(request: GenerationRequest) -> GenerationRequest:
+    """Build a text-only fallback request after provider privacy rejection."""
+    extra = dict(request.extra)
+    for key in (
+        "prompt_segments",
+        "image_urls",
+        "image_paths",
+        "additional_references",
+    ):
+        extra.pop(key, None)
+
+    prompt = request.prompt
+    if "[ref:" in prompt:
+        from videoclaw.drama.prompt_segments import PromptSegmenter
+        prompt = PromptSegmenter.strip_markers(prompt)
+
+    return replace(request, prompt=prompt, reference_image=None, extra=extra)
 
 
 def _detect_mime_from_bytes(data: bytes) -> str:
@@ -448,7 +502,7 @@ class SeedanceVideoAdapter:
             await self._http_client.aclose()
             self._http_client = None
 
-    async def __aenter__(self) -> "SeedanceVideoAdapter":
+    async def __aenter__(self) -> SeedanceVideoAdapter:
         return self
 
     async def __aexit__(self, *_: object) -> None:
@@ -478,6 +532,19 @@ class SeedanceVideoAdapter:
         """Submit a video generation task and poll until completion."""
         self._ensure_api_key()
 
+        try:
+            return await self._generate_once(request)
+        except RuntimeError as exc:
+            if _PRIVACY_ERROR_MARKER not in str(exc) or not _has_reference_media(request):
+                raise
+            logger.warning(
+                "[seedance] Reference image rejected by privacy filter; "
+                "retrying once without reference images"
+            )
+            return await self._generate_once(_without_reference_media(request))
+
+    async def _generate_once(self, request: GenerationRequest) -> GenerationResult:
+        """Submit one Seedance task, poll, and download the resulting video."""
         task_id = await self._create_task(request)
         video_url = await self._poll_until_done(task_id)
         video_data = await self._download_video(video_url)
@@ -514,17 +581,22 @@ class SeedanceVideoAdapter:
         attempt = 0
         video_url: str | None = None
         while elapsed < _POLL_TIMEOUT_S:
-            interval = min(_POLL_BACKOFF_BASE * (_POLL_BACKOFF_FACTOR ** attempt), _POLL_MAX_INTERVAL)
+            interval = min(
+                _POLL_BACKOFF_BASE * (_POLL_BACKOFF_FACTOR ** attempt),
+                _POLL_MAX_INTERVAL,
+            )
             await asyncio.sleep(interval)
             elapsed += interval
             attempt += 1
 
-            status, video_url = await self._check_task(task_id)
+            status, video_url, error = await self._check_task(task_id)
 
             if status == "done" and video_url:
                 break
             if status == "failed":
-                raise RuntimeError(f"Seedance generation failed (task={task_id})")
+                raise RuntimeError(
+                    f"Seedance generation failed (task={task_id}): {error}"
+                )
 
             progress = min(0.1 + (elapsed / _POLL_TIMEOUT_S) * 0.8, 0.9)
             yield ProgressEvent(progress=progress, stage="processing")
@@ -626,7 +698,7 @@ class SeedanceVideoAdapter:
                     "[seedance] Structured content mode: %d entries (%d images)",
                     len(structured_content), image_count,
                 )
-                return structured_content
+                return _coalesce_text_content(structured_content)
 
         # --- Existing content building logic (unchanged below) ---
         content: list[dict[str, Any]] = []
@@ -939,13 +1011,13 @@ class SeedanceVideoAdapter:
 
         raise RuntimeError("Seedance task creation failed: rate limited after all retries")
 
-    async def _check_task(self, task_id: str) -> tuple[str, str | None]:
+    async def _check_task(self, task_id: str) -> tuple[str, str | None, Any | None]:
         """Query task status.
 
         ``POST {base}/api/v1/doubao/get_result`` with ``{"id": task_id}``
 
-        Returns ``(status, video_url | None)`` where status is one of
-        ``"processing"``, ``"done"``, or ``"failed"``.
+        Returns ``(status, video_url | None, error | None)`` where status is
+        one of ``"processing"``, ``"done"``, or ``"failed"``.
         """
         client = self._client()
         resp = await client.post(
@@ -962,26 +1034,29 @@ class SeedanceVideoAdapter:
 
         if raw_status in ("succeeded", "success", "completed", "done"):
             video_url = self._extract_video_url(data)
-            return "done", video_url
+            return "done", video_url, None
 
         if raw_status in ("failed", "error", "cancelled"):
             error = data.get("error") or "unknown"
             logger.error("[seedance] Task %s failed: %s", task_id, error)
-            return "failed", None
+            return "failed", None, error
 
-        return "processing", None
+        return "processing", None, None
 
     async def _poll_until_done(self, task_id: str) -> str:
         """Poll task status until completion, returning the video URL."""
         elapsed = 0.0
         attempt = 0
         while elapsed < _POLL_TIMEOUT_S:
-            interval = min(_POLL_BACKOFF_BASE * (_POLL_BACKOFF_FACTOR ** attempt), _POLL_MAX_INTERVAL)
+            interval = min(
+                _POLL_BACKOFF_BASE * (_POLL_BACKOFF_FACTOR ** attempt),
+                _POLL_MAX_INTERVAL,
+            )
             await asyncio.sleep(interval)
             elapsed += interval
             attempt += 1
 
-            status, video_url = await self._check_task(task_id)
+            status, video_url, error = await self._check_task(task_id)
 
             if status == "done":
                 if not video_url:
@@ -992,12 +1067,18 @@ class SeedanceVideoAdapter:
 
             if status == "failed":
                 raise RuntimeError(
-                    f"Seedance generation failed (task={task_id})"
+                    f"Seedance generation failed (task={task_id}): {error}"
                 )
 
             logger.info(
                 "[seedance] Task %s: %s (%.0fs elapsed, next poll in %.0fs)",
-                task_id, status, elapsed, min(_POLL_BACKOFF_BASE * (_POLL_BACKOFF_FACTOR ** attempt), _POLL_MAX_INTERVAL),
+                task_id,
+                status,
+                elapsed,
+                min(
+                    _POLL_BACKOFF_BASE * (_POLL_BACKOFF_FACTOR ** attempt),
+                    _POLL_MAX_INTERVAL,
+                ),
             )
 
         raise TimeoutError(
@@ -1037,7 +1118,7 @@ class SeedanceVideoAdapter:
     async def _download_video(self, url: str) -> bytes:
         """Download video bytes from URL."""
         client = self._client()
-        resp = await client.get(url)
+        resp = await client.get(url, follow_redirects=True)
         resp.raise_for_status()
         return resp.content
 

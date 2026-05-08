@@ -9,6 +9,8 @@ import subprocess
 import sys
 from typing import Any
 
+import typer
+
 from videoclaw.cli._app import app, show_banner, status_icon
 from videoclaw.cli._output import get_console, get_output
 from videoclaw.config import get_config
@@ -62,6 +64,18 @@ def doctor() -> None:
 
     # -- API keys -----------------------------------------------------------
     cfg = get_config()
+    # Evolink is the primary LLM gateway -- required for any drama work.
+    # Missing it makes doctor exit 3 (auth needed, per agent-cli contract).
+    evolink_ok = bool(cfg.evolink_api_key or os.environ.get("VIDEOCLAW_EVOLINK_API_KEY"))
+    table.add_row(
+        "Evolink LLM gateway",
+        status_icon(evolink_ok),
+        "configured"
+        if evolink_ok
+        else "missing (set VIDEOCLAW_EVOLINK_API_KEY -- required for drama)",
+    )
+    checks["evolink_key"] = {"ok": evolink_ok, "required": True}
+
     openai_ok = bool(cfg.openai_api_key or os.environ.get("OPENAI_API_KEY"))
     table.add_row(
         "OpenAI API key",
@@ -147,5 +161,22 @@ def doctor() -> None:
     console.print(table)
     console.print()
 
-    out.set_result({"checks": checks, "all_ok": all(c["ok"] for c in checks.values())})
+    all_ok = all(c["ok"] for c in checks.values())
+    out.set_result({"checks": checks, "all_ok": all_ok})
     out.emit()
+
+    # Exit-code contract (per packaging/agent-cli.yaml):
+    #   0 ok / 1 runtime / 2 usage / 3 auth needed / 4 blocked
+    # If a *required* check failed (today: only Evolink key), exit 3 so
+    # coding agents can branch on `$? == 3` and trigger `claw setup` /
+    # `bash setup.sh` automatically. Other failures (FFmpeg missing,
+    # GPU absent, low disk) exit 1 -- runtime, not auth.
+    required_failed = any(
+        not check["ok"]
+        for name, check in checks.items()
+        if check.get("required")
+    )
+    if required_failed:
+        raise typer.Exit(code=3)
+    if not all_ok:
+        raise typer.Exit(code=1)

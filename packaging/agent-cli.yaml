@@ -1,0 +1,111 @@
+# Agent-CLI deployment manifest for videoclaw.
+#
+# Schema: agent-cli/v1 (R018 minimum-fields per the agent-cli-toolkit
+# interface contract). Orchestrators auto-discover videoclaw's surface by
+# reading this file from a known path (typically the installed wheel root
+# or the repo root after `gh release download`).
+#
+# Validate locally::
+#
+#   python packaging/manifest-validate.py packaging/agent-cli.yaml
+
+schema: agent-cli/v1
+
+# --- Identity ---
+name: videoclaw
+binary: claw
+version: "0.1.2"
+description: |
+  Agent OS for AI video generation — TikTok-format Western live-action drama
+  pipeline (drama plan → design → generate → audit → export).
+
+# --- Capability surface ---
+commands:
+  # Top-level CLI commands the binary exposes. Each entry's `path` is the
+  # invocation string (orchestrators substitute `{binary}` with the binary
+  # name resolved from `binary:` above).
+  - name: version
+    path: "{binary} version"
+    description: "Print version string."
+  - name: doctor
+    path: "{binary} --json doctor"
+    description: "Environment diagnostics in JSON envelope."
+  - name: info
+    path: "{binary} --json info"
+    description: "System snapshot (registered models / drama series count)."
+  - name: drama
+    path: "{binary} drama"
+    description: "Drama production sub-app (plan / design / run / audit / export)."
+  - name: model
+    path: "{binary} model list"
+    description: "List registered video adapters."
+
+# --- Config surface ---
+config_dir: "${HOME}/.config/videoclaw"
+# Note: actual defaults today are cwd-relative (./projects, ./models_cache,
+# ./docs/deliverables); the XDG migration that aligns config_dir with the
+# blueprint's prescribed value is deferred to a future milestone
+# (packaging/xdg-migration.md, P2).
+
+env_prefix: "VIDEOCLAW_"
+# CLAW_* aliasing is deferred (P2) — only VIDEOCLAW_* is read today.
+
+# --- Health check ---
+health_check:
+  command: "{binary} --json doctor"
+  expect_exit_code: 0
+  expect_stdout_path: ".ok"
+  expect_stdout_value: true
+
+# --- Exit codes (agent-cli contract) ---
+# Coding agents branch on `$?` after invoking `claw …` without parsing
+# stderr. The five-code contract is stable; videoclaw uses 0/1/2/3 from
+# the CLI itself and reserves 4 for install.sh-style policy refusals.
+#
+#   0 = ok                 — command succeeded
+#   1 = runtime error      — transient or unknown failure (retry, then escalate)
+#   2 = usage error        — bad CLI arguments (typer.BadParameter raises this)
+#   3 = auth needed        — required API key missing/invalid (run `bash setup.sh`)
+#   4 = blocked            — refused to run (root install, unsupported OS/arch);
+#                            currently used only by install.sh, reserved by the CLI
+#
+# `claw doctor` emits 3 when VIDEOCLAW_EVOLINK_API_KEY is missing, 1 when
+# any other check fails, 0 when everything is healthy.
+exit_codes:
+  ok: 0
+  runtime_error: 1
+  usage_error: 2
+  auth_needed: 3
+  blocked: 4
+
+# --- Optional MCP transport (sibling shim) ---
+mcp:
+  transport: stdio
+  command: "videoclaw-mcp-server"
+  install_hint: "uv pip install -e mcp-shim/"
+  tools:
+    - name: list_drama_series
+      description: "Return drama series IDs persisted on this host."
+    - name: get_drama_series
+      description: "Return metadata for one drama series (title / status / episode count)."
+    - name: list_video_models
+      description: "Return registered video-adapter names."
+    - name: get_videoclaw_version
+      description: "Return installed videoclaw version string."
+
+# --- Optional ACP (deferred) ---
+# acp block intentionally omitted — videoclaw is batch-oriented, not
+# chat-oriented; the productive surface stays `claw drama …` and MCP tools.
+# Future ACP stub will live in mcp-shim/acp_server.py (P2).
+
+# --- Distribution channels ---
+distribution:
+  - kind: wheel
+    artifact_name_pattern: "videoclaw-{version}-py3-none-any.whl"
+    install_command: "pip install videoclaw-{version}-py3-none-any.whl"
+  - kind: pyinstaller
+    artifact_name_pattern: "claw-{version}-{os}-{arch}"
+    install_command: "chmod +x claw && mv claw ${HOME}/.local/bin/"
+  - kind: docker
+    artifact_name_pattern: "videoclaw-cli:{version}"
+    install_command: "docker pull videoclaw-cli:{version}"

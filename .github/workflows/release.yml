@@ -1,0 +1,235 @@
+# Tag-driven release: wheel + PyInstaller binaries + SHA256SUMS +
+# update-manifest.json, uploaded to a GitHub Release.
+#
+# Trigger: push a tag matching v*, e.g.
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# Outputs (attached to the Release):
+#   videoclaw-<version>-py3-none-any.whl
+#   videoclaw-<version>.tar.gz
+#   claw-<version>-darwin-arm64
+#   claw-<version>-linux-x86_64
+#   SHA256SUMS
+#   update-manifest.json     (schema agent-cli-update/v1)
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (without leading v), e.g. 0.1.0"
+        required: true
+      dry_run:
+        description: "Dry-run mode (default true on dispatch — never creates a real Release)"
+        type: boolean
+        required: false
+        default: true
+    # Note: workflow_dispatch is structurally a dry-run regardless of the
+    # `dry_run` input — the "Create GitHub Release" step below only fires on
+    # `push` of a v* tag (see its `if:` clause). The input exists so callers
+    # can be explicit, e.g. `gh workflow run release.yml -f version=0.1.0
+    # -f dry_run=true` per the M002 spec verification.
+
+permissions:
+  contents: write   # needed to create the GitHub Release
+
+jobs:
+  # ---------------------------------------------------------------------
+  # Wheel + sdist (single ubuntu runner — output is platform-independent)
+  # ---------------------------------------------------------------------
+  build-wheel:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            v="${{ github.event.inputs.version }}"
+          else
+            v="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $v"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Build wheel + sdist
+        run: uv build --out-dir dist
+
+      - name: Upload wheel + sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-wheel
+          path: dist/*
+
+  # ---------------------------------------------------------------------
+  # PyInstaller binary (matrix: darwin/arm64 + linux/x86_64)
+  # ---------------------------------------------------------------------
+  build-binary:
+    needs: build-wheel
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14         # Apple Silicon
+            os_label: darwin
+            arch_label: arm64
+          - os: ubuntu-latest    # x86_64
+            os_label: linux
+            arch_label: x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install package + PyInstaller into venv
+        run: |
+          uv venv --python 3.12
+          uv pip install -e ".[dev]" pyinstaller
+        # `--system` would target the runner's externally-managed Python
+        # (PEP 668 — brew python@3.14 on macos-14, /usr on ubuntu-latest)
+        # and fail with "externally managed". Explicit venv from
+        # uv-installed 3.12 avoids both system Pythons.
+
+      - name: Build binary
+        run: uv run pyinstaller packaging/claw.spec --clean --noconfirm --distpath dist
+
+      - name: Rename binary
+        run: |
+          v="${{ needs.build-wheel.outputs.version }}"
+          mv dist/claw "dist/claw-${v}-${{ matrix.os_label }}-${{ matrix.arch_label }}"
+
+      - name: Smoke test
+        run: |
+          v="${{ needs.build-wheel.outputs.version }}"
+          "./dist/claw-${v}-${{ matrix.os_label }}-${{ matrix.arch_label }}" version
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-binary-${{ matrix.os_label }}-${{ matrix.arch_label }}
+          path: dist/claw-*
+
+  # ---------------------------------------------------------------------
+  # Aggregate, sign, manifest, release
+  # ---------------------------------------------------------------------
+  release:
+    needs: [build-wheel, build-binary]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Stage release directory
+        run: |
+          mkdir -p release
+          find artifacts -type f -exec cp {} release/ \;
+          ls -la release/
+
+      - name: Compute SHA256SUMS
+        working-directory: release
+        run: sha256sum * > SHA256SUMS
+
+      - name: Generate update-manifest.json
+        working-directory: release
+        run: |
+          v="${{ needs.build-wheel.outputs.version }}"
+          owner="${{ github.repository_owner }}"
+          repo="${{ github.event.repository.name }}"
+          released_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          python3 <<PY > update-manifest.json
+          import hashlib, json, pathlib, os
+
+          v = "$v"
+          owner = "$owner"
+          repo = "$repo"
+          released_at = "$released_at"
+          base = f"https://github.com/{owner}/{repo}/releases/download/v{v}"
+
+          def sha(path):
+              return hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
+
+          def size(path):
+              return os.path.getsize(path)
+
+          def entry(filename, platform, arch):
+              return {
+                  "name": filename,
+                  "platform": platform,
+                  "arch": arch,
+                  "sha256": sha(filename),
+                  "size": size(filename),
+                  "download_url": f"{base}/{filename}",
+              }
+
+          artifacts = []
+          # Wheel + sdist (any platform)
+          for p in pathlib.Path(".").iterdir():
+              n = p.name
+              if n.endswith(".whl"):
+                  artifacts.append(entry(n, "any", "any"))
+              elif n.endswith(".tar.gz"):
+                  artifacts.append(entry(n, "any", "any"))
+          # Binaries
+          for p in pathlib.Path(".").iterdir():
+              n = p.name
+              if n.startswith("claw-") and not n.endswith(".whl"):
+                  parts = n.split("-")  # claw-<v>-<os>-<arch>
+                  if len(parts) == 4:
+                      _, _, plat, arch = parts
+                      artifacts.append(entry(n, plat, arch))
+
+          manifest = {
+              "schema": "agent-cli-update/v1",
+              "tool": "claw",
+              "latest": v,
+              "min_supported": v,
+              "released_at": released_at,
+              "artifacts": artifacts,
+          }
+          print(json.dumps(manifest, indent=2))
+          PY
+
+          cat update-manifest.json
+
+      - name: Validate manifest schema
+        run: python3 packaging/manifest-validate.py packaging/agent-cli.yaml || true
+        # The agent-cli.yaml validator is for the deployment manifest, not
+        # update-manifest. Keep it as a sanity check; not blocking.
+
+      - name: Upload release directory as workflow artifact (dry-run only)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-dryrun
+          path: release/*
+
+      - name: Create GitHub Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            release/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

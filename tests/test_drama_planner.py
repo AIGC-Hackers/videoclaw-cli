@@ -9,6 +9,7 @@ from videoclaw.drama.models import (
     Character,
     DramaSeries,
     Episode,
+    EpisodeStatus,
     ShotScale,
     ShotType,
 )
@@ -20,6 +21,174 @@ from videoclaw.drama.planner import DramaPlanner
 
 
 @pytest.mark.asyncio
+async def test_plan_series_retries_when_llm_first_returns_non_json():
+    """plan_series should recover when an LLM first ignores the JSON-only prompt."""
+    valid_plan = json.dumps({
+        "title": "工具人恋爱",
+        "genre": "romance",
+        "synopsis": "两个各怀目的的人在假相亲中动了真心。",
+        "characters": [
+            {
+                "name": "陆北辰",
+                "description": "航天工程师，理性克制。",
+                "visual_prompt": "Chinese man in his early thirties, neat black hair, crisp shirt",
+                "voice_style": "calm",
+            },
+            {
+                "name": "苏念念",
+                "description": "带货主播，嘴贫心软。",
+                "visual_prompt": (
+                    "Chinese woman in her late twenties, shoulder-length hair, modern outfit"
+                ),
+                "voice_style": "playful",
+            },
+        ],
+        "episodes": [
+            {
+                "number": 1,
+                "title": "相亲协议",
+                "synopsis": "两人在相亲局互相摊牌，决定暂时合作。",
+                "opening_hook": "苏念念当场吐槽陆北辰像在开项目会。",
+                "duration_seconds": 60,
+            }
+        ],
+    }, ensure_ascii=False)
+
+    mock_llm = AsyncMock()
+    mock_llm.chat = AsyncMock(side_effect=[
+        "I'll generate the drama package.\n\n## Characters\n- 陆北辰\n- 苏念念",
+        valid_plan,
+    ])
+
+    planner = DramaPlanner(llm=mock_llm)
+    series = DramaSeries(
+        title="测试",
+        synopsis="假相亲变真心",
+        genre="romance",
+        total_episodes=1,
+        target_episode_duration=60,
+        language="zh",
+    )
+
+    result = await planner.plan_series(series)
+
+    assert len(result.characters) == 2
+    assert len(result.episodes) == 1
+    assert result.episodes[0].status == EpisodeStatus.PENDING
+    assert mock_llm.chat.await_count == 2
+    retry_messages = mock_llm.chat.await_args_list[1].kwargs["messages"]
+    assert "Return ONLY valid JSON" in retry_messages[0]["content"]
+    assert "Previous response was not valid JSON" in retry_messages[1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_plan_series_retries_when_llm_returns_wrong_schema():
+    """plan_series should reject JSON that lacks required plan arrays."""
+    valid_plan = json.dumps({
+        "title": "工具人恋爱",
+        "genre": "romance",
+        "synopsis": "两个工具人动了真心。",
+        "characters": [
+            {
+                "name": "陆北辰",
+                "description": "理性工程师。",
+                "visual_prompt": "Chinese man in his early thirties, neat hair",
+                "voice_style": "calm",
+            },
+            {
+                "name": "苏念念",
+                "description": "嘴贫主播。",
+                "visual_prompt": "Chinese woman in her late twenties, modern outfit",
+                "voice_style": "playful",
+            },
+        ],
+        "episodes": [
+            {
+                "number": 1,
+                "title": "协议开始",
+                "synopsis": "两人达成假相亲协议。",
+                "opening_hook": "苏念念吐槽陆北辰。",
+                "duration_seconds": 60,
+            }
+        ],
+    }, ensure_ascii=False)
+
+    mock_llm = AsyncMock()
+    mock_llm.chat = AsyncMock(side_effect=[
+        json.dumps({"title": "只有标题"}, ensure_ascii=False),
+        valid_plan,
+    ])
+
+    planner = DramaPlanner(llm=mock_llm)
+    series = DramaSeries(
+        title="测试",
+        synopsis="假相亲变真心",
+        genre="romance",
+        total_episodes=1,
+        target_episode_duration=60,
+        language="zh",
+    )
+
+    result = await planner.plan_series(series)
+
+    assert len(result.characters) == 2
+    assert len(result.episodes) == 1
+    assert mock_llm.chat.await_count == 2
+    retry_messages = mock_llm.chat.await_args_list[1].kwargs["messages"]
+    assert "required JSON fields were missing or empty" in retry_messages[1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_plan_series_requests_large_low_temperature_json_completion():
+    """plan_series should avoid default short, creative LLM completions."""
+    valid_plan = json.dumps({
+        "title": "工具人恋爱",
+        "genre": "romance",
+        "synopsis": "两个工具人动了真心。",
+        "characters": [
+            {
+                "name": "陆北辰",
+                "description": "理性工程师。",
+                "visual_prompt": "Chinese man in his early thirties, neat hair",
+                "voice_style": "calm",
+            },
+            {
+                "name": "苏念念",
+                "description": "嘴贫主播。",
+                "visual_prompt": "Chinese woman in her late twenties, modern outfit",
+                "voice_style": "playful",
+            },
+        ],
+        "episodes": [
+            {
+                "number": 1,
+                "title": "协议开始",
+                "synopsis": "两人达成假相亲协议。",
+                "opening_hook": "苏念念吐槽陆北辰。",
+                "duration_seconds": 60,
+            }
+        ],
+    }, ensure_ascii=False)
+
+    mock_llm = AsyncMock()
+    mock_llm.chat = AsyncMock(return_value=valid_plan)
+
+    planner = DramaPlanner(llm=mock_llm)
+    series = DramaSeries(
+        title="测试",
+        synopsis="假相亲变真心",
+        total_episodes=1,
+        target_episode_duration=60,
+        language="zh",
+    )
+
+    await planner.plan_series(series)
+
+    assert mock_llm.chat.await_args.kwargs["max_tokens"] == 8192
+    assert mock_llm.chat.await_args.kwargs["temperature"] == 0.2
+
+
+@pytest.mark.asyncio
 async def test_script_episode_parses_mock_llm_response():
     """script_episode should parse mock LLM JSON into DramaScene objects."""
     mock_llm_response = json.dumps({
@@ -28,7 +197,10 @@ async def test_script_episode_parses_mock_llm_response():
             {
                 "scene_id": "ep01_s01",
                 "description": "深夜办公室，林晓接到神秘电话",
-                "visual_prompt": "Modern office at night, young Chinese woman in business suit, short black hair, looking shocked at phone, dramatic lighting from desk lamp",
+                "visual_prompt": (
+                    "Modern office at night, young Chinese woman in business suit, short "
+                    "black hair, looking shocked at phone, dramatic lighting from desk lamp"
+                ),
                 "camera_movement": "dolly_in",
                 "duration_seconds": 5.0,
                 "dialogue": "喂？你是谁？",
@@ -43,7 +215,10 @@ async def test_script_episode_parses_mock_llm_response():
             {
                 "scene_id": "ep01_s02",
                 "description": "林晓震惊地看着手机屏幕",
-                "visual_prompt": "Close-up of young Chinese woman's face, short black hair, eyes wide with shock, phone screen illuminating her face, dark office background",
+                "visual_prompt": (
+                    "Close-up of young Chinese woman's face, short black hair, eyes wide "
+                    "with shock, phone screen illuminating her face, dark office background"
+                ),
                 "camera_movement": "static",
                 "duration_seconds": 3.0,
                 "dialogue": "",
@@ -86,6 +261,157 @@ async def test_script_episode_parses_mock_llm_response():
     assert episode.script is not None
     assert "命运来电" in episode.script
     assert script_data["cliffhanger"] == "电话那头的声音，竟然是她自己"
+
+
+@pytest.mark.asyncio
+async def test_script_episode_retries_when_llm_first_returns_non_json():
+    """script_episode should recover when an LLM first returns markdown."""
+    valid_script = json.dumps({
+        "episode_title": "相亲协议",
+        "scenes": [
+            {
+                "scene_id": "ep01_s01",
+                "description": "茶餐厅里两人互相试探",
+                "visual_prompt": (
+                    "Shanghai tea restaurant, Chinese man and woman talking, warm lighting"
+                ),
+                "camera_movement": "static",
+                "duration_seconds": 8.0,
+                "dialogue": "你是来相亲，还是来开会？",
+                "narration": "",
+                "speaking_character": "苏念念",
+                "shot_scale": "medium_close",
+                "shot_type": "action",
+                "emotion": "warm",
+                "characters_present": ["陆北辰", "苏念念"],
+                "transition": "cut",
+            }
+        ],
+        "voice_over": {"text": "", "tone": "warm", "language": "zh"},
+        "music": {"style": "acoustic", "mood": "romantic", "tempo": 80},
+        "cliffhanger": "陆北辰第一次不知道怎么回答。",
+    }, ensure_ascii=False)
+
+    mock_llm = AsyncMock()
+    mock_llm.chat = AsyncMock(side_effect=[
+        "# 相亲协议\n\n这是一个 Markdown 分镜脚本。",
+        valid_script,
+    ])
+
+    planner = DramaPlanner(llm=mock_llm)
+    series = DramaSeries(
+        title="工具人恋爱",
+        characters=[Character(name="陆北辰"), Character(name="苏念念")],
+        language="zh",
+    )
+    episode = Episode(number=1, title="相亲协议", synopsis="两人互相试探", duration_seconds=8.0)
+
+    script_data = await planner.script_episode(series, episode)
+
+    assert len(episode.scenes) == 1
+    assert script_data["cliffhanger"] == "陆北辰第一次不知道怎么回答。"
+    assert mock_llm.chat.await_count == 2
+    retry_messages = mock_llm.chat.await_args_list[1].kwargs["messages"]
+    assert "Return ONLY valid JSON" in retry_messages[0]["content"]
+    assert "Previous response was not valid JSON" in retry_messages[1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_script_episode_retries_when_llm_returns_wrong_schema():
+    """script_episode should reject JSON that lacks scenes."""
+    valid_script = json.dumps({
+        "episode_title": "相亲协议",
+        "scenes": [
+            {
+                "scene_id": "ep01_s01",
+                "description": "茶餐厅里两人互相试探",
+                "visual_prompt": (
+                    "Shanghai tea restaurant, Chinese man and woman talking, warm lighting"
+                ),
+                "camera_movement": "static",
+                "duration_seconds": 8.0,
+                "dialogue": "你是来相亲，还是来开会？",
+                "narration": "",
+                "speaking_character": "苏念念",
+                "shot_scale": "medium_close",
+                "shot_type": "action",
+                "emotion": "warm",
+                "characters_present": ["陆北辰", "苏念念"],
+                "transition": "cut",
+            }
+        ],
+        "voice_over": {"text": "", "tone": "warm", "language": "zh"},
+        "music": {"style": "acoustic", "mood": "romantic", "tempo": 80},
+        "cliffhanger": "陆北辰第一次不知道怎么回答。",
+    }, ensure_ascii=False)
+
+    mock_llm = AsyncMock()
+    mock_llm.chat = AsyncMock(side_effect=[
+        json.dumps({"episode_title": "相亲协议"}, ensure_ascii=False),
+        valid_script,
+    ])
+
+    planner = DramaPlanner(llm=mock_llm)
+    series = DramaSeries(
+        title="工具人恋爱",
+        characters=[Character(name="陆北辰"), Character(name="苏念念")],
+        language="zh",
+    )
+    episode = Episode(number=1, title="相亲协议", synopsis="两人互相试探", duration_seconds=8.0)
+
+    script_data = await planner.script_episode(series, episode)
+
+    assert len(episode.scenes) == 1
+    assert script_data["cliffhanger"] == "陆北辰第一次不知道怎么回答。"
+    assert mock_llm.chat.await_count == 2
+    retry_messages = mock_llm.chat.await_args_list[1].kwargs["messages"]
+    assert "required JSON fields were missing or empty" in retry_messages[1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_script_episode_requests_large_low_temperature_json_completion():
+    """script_episode should request enough output for a full scene list."""
+    valid_script = json.dumps({
+        "episode_title": "相亲协议",
+        "scenes": [
+            {
+                "scene_id": "ep01_s01",
+                "description": "茶餐厅里两人互相试探",
+                "visual_prompt": (
+                    "Shanghai tea restaurant, Chinese man and woman talking, warm lighting"
+                ),
+                "camera_movement": "static",
+                "duration_seconds": 8.0,
+                "dialogue": "你是来相亲，还是来开会？",
+                "narration": "",
+                "speaking_character": "苏念念",
+                "shot_scale": "medium_close",
+                "shot_type": "action",
+                "emotion": "warm",
+                "characters_present": ["陆北辰", "苏念念"],
+                "transition": "cut",
+            }
+        ],
+        "voice_over": {"text": "", "tone": "warm", "language": "zh"},
+        "music": {"style": "acoustic", "mood": "romantic", "tempo": 80},
+        "cliffhanger": "陆北辰第一次不知道怎么回答。",
+    }, ensure_ascii=False)
+
+    mock_llm = AsyncMock()
+    mock_llm.chat = AsyncMock(return_value=valid_script)
+
+    planner = DramaPlanner(llm=mock_llm)
+    series = DramaSeries(
+        title="工具人恋爱",
+        characters=[Character(name="陆北辰"), Character(name="苏念念")],
+        language="zh",
+    )
+    episode = Episode(number=1, title="相亲协议", synopsis="两人互相试探", duration_seconds=8.0)
+
+    await planner.script_episode(series, episode)
+
+    assert mock_llm.chat.await_args.kwargs["max_tokens"] == 8192
+    assert mock_llm.chat.await_args.kwargs["temperature"] == 0.2
 
 
 # ---------------------------------------------------------------------------

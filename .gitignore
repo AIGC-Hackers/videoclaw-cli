@@ -42,14 +42,23 @@ models_cache/
 
 docs/deliverables/*
 !docs/deliverables/这个王妃太狂野/
-docs/plans
+docs/plans/*
+# Track agent-cli toolkit planning docs (spec / audit / tasks / verification report).
+# Drama-specific plans stay ignored.
+!docs/plans/2026-*-agent-cli-*.md
 .devtool/
 
 # 本地开发工具产物（不入库）
 .gsd/*
 !.gsd/PREFERENCES.md
+.gsd-id
 .bg-shell/
 .mcp.json
 .claude/
 docs/superpowers/notes/
 docs/superpowers/plans/
+# external e2e test data (drama scripts are user content)
+tests-external/data/*
+!tests-external/data/.gitkeep
+# mcp-shim is a sibling sub-package; its lockfile churns separately.
+mcp-shim/uv.lock
