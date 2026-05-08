@@ -4,9 +4,9 @@ Recipe for shipping `claw` as an agent-callable CLI: wheel, PyInstaller
 binary, Docker image, and an `.agent-cli.yaml` manifest that orchestrators
 read to auto-discover the surface.
 
-Everything in this directory honors the **write-scope lock**: zero edits
-under `src/videoclaw/` or `tests/`. The shim wraps videoclaw at the
-boundary; the existing source code is untouched.
+The top-level `agent-cli-release-gate.sh` is the deployment-agent entrypoint
+for the full release contract. It calls the packaging tools here, then verifies
+the rebuilt wheel through a fresh installed `claw` CLI.
 
 ## Files in this directory
 
@@ -17,7 +17,7 @@ boundary; the existing source code is untouched.
 | `claw.spec` | PyInstaller spec — one-file (default) and one-dir (`PYINSTALLER_ONEDIR=1`). |
 | `_entry.py` | Entry shim for PyInstaller / `python -m`; imports `videoclaw.cli:app`. |
 | `Dockerfile` | Multi-stage CLI image; parallel to the FastAPI image at repo root. |
-| `dist-verify.sh` | Builds wheel + binary + image and smoke-tests `claw --version`. |
+| `dist-verify.sh` | Builds wheel + binary + image and smoke-tests `claw version`. |
 | `agent-cli.yaml` | Deployment manifest (schema `agent-cli/v1`). |
 | `manifest-validate.py` | Schema validator for the manifest above. |
 | `envelope_shim.md` | Design note — boundary-wrapper plan for the `agent-cli/v1` envelope. |
@@ -27,6 +27,11 @@ The MCP server lives in the sibling `mcp-shim/` tree; see `mcp-shim/README.md`.
 ## Quickstart
 
 ```bash
+# Full agent-callable CLI gate from the repo root.
+./agent-cli-release-gate.sh ci
+./agent-cli-release-gate.sh version
+./agent-cli-release-gate.sh release --with-npx
+
 # Build all three distribution artifacts and smoke-test each.
 bash packaging/dist-verify.sh
 

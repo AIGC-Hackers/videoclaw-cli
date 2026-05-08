@@ -21,11 +21,34 @@ cd "$REPO_ROOT"
 STAGE_WHEEL="${STAGE_WHEEL:-1}"
 STAGE_BIN="${STAGE_BIN:-1}"
 STAGE_DOCKER="${STAGE_DOCKER:-1}"
+PYTHON_BIN="${AGENT_CLI_PYTHON:-${PYTHON_BIN:-}}"
 
 dist_dir="$REPO_ROOT/dist"
 mkdir -p "$dist_dir"
 
 step() { printf '\n=== %s ===\n' "$1"; }
+
+resolve_python() {
+    if [ -z "$PYTHON_BIN" ] && command -v uv >/dev/null 2>&1; then
+        PYTHON_BIN="$(uv python find 3.12 2>/dev/null || true)"
+    fi
+    if [ -z "$PYTHON_BIN" ]; then
+        PYTHON_BIN="$(command -v python3 || true)"
+    fi
+    [ -n "$PYTHON_BIN" ] || {
+        echo "FAIL: Python >=3.12 is required for wheel smoke checks"
+        exit 1
+    }
+    "$PYTHON_BIN" - <<'PY'
+import sys
+
+if sys.version_info < (3, 12):
+    raise SystemExit(
+        f"FAIL: Python >=3.12 is required, got "
+        f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    )
+PY
+}
 
 # ---------- wheel ----------
 if [ "$STAGE_WHEEL" = "1" ]; then
@@ -41,8 +64,9 @@ if [ "$STAGE_WHEEL" = "1" ]; then
     echo "wheel: $whl"
 
     step "wheel — install + smoke"
+    resolve_python
     venv="$(mktemp -d)/venv"
-    python3 -m venv "$venv"
+    "$PYTHON_BIN" -m venv "$venv"
     "$venv/bin/pip" install --quiet "$whl"
     "$venv/bin/claw" version
 fi

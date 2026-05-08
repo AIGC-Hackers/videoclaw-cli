@@ -47,6 +47,35 @@ uv pip install -e .
 uv run claw setup
 ```
 
+## Deployment agent release gate
+
+For repository automation, the stable root command is:
+
+```bash
+./agent-cli-release-gate.sh ci
+```
+
+Use it after normal source changes. It runs unit tests, lint, skills and
+manifest validators, builds a wheel, installs that wheel into a fresh venv,
+and verifies the packaged `claw` CLI can run `version` and
+`setup --dry-run --no-npx`.
+
+Version and release flow:
+
+```bash
+./agent-cli-release-gate.sh version
+./agent-cli-release-gate.sh release --with-npx
+./agent-cli-release-gate.sh release --with-npx --with-real-llm --with-real-video
+```
+
+Source changes do not require an immediate public release. Any artifact that
+will be handed to external coding agents does require a rebuild and fresh
+wheel-install verification before publishing. The order is: edit source, run
+`ci`, bump version if public behavior or bundled assets changed, run `version`,
+run `release --with-npx`, optionally run real-video E2E, then commit/tag/push.
+
+See `docs/plans/2026-05-08-agent-cli-release-gate.md` for the full spec.
+
 ## Per-agent quickstart
 
 > **How `claw setup` resolves agents:** when `npx` is on `PATH`, it

@@ -1,4 +1,4 @@
-.PHONY: install dev test lint format run clean doctor
+.PHONY: install dev test lint format run clean doctor agent-cli-gate agent-cli-version-gate agent-cli-release-gate
 
 install:
 	uv pip install -e .
@@ -26,6 +26,15 @@ run:
 
 doctor:
 	uv run claw doctor
+
+agent-cli-gate:
+	./agent-cli-release-gate.sh ci
+
+agent-cli-version-gate:
+	./agent-cli-release-gate.sh version
+
+agent-cli-release-gate:
+	./agent-cli-release-gate.sh release --with-npx
 
 clean:
 	rm -rf dist/ build/ *.egg-info .mypy_cache .pytest_cache .ruff_cache

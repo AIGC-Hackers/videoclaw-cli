@@ -60,6 +60,21 @@ Full channel matrix: [`packaging/DISTRIBUTION-PLAN.md`](packaging/DISTRIBUTION-P
 
 </details>
 
+### Release gate for deployment agents
+
+When changing source, skills, packaging metadata, or release versions, use the
+root-level gate before publishing artifacts:
+
+```bash
+./agent-cli-release-gate.sh ci                # source-change gate
+./agent-cli-release-gate.sh version           # version-bump packaging gate
+./agent-cli-release-gate.sh release --with-npx # release candidate + skills registry
+```
+
+The gate rebuilds the wheel, installs it into a fresh venv, and verifies the
+packaged `claw` CLI. Add `--with-real-llm --with-real-video` for the billable
+first-3-shots proof.
+
 ### 2. Open your coding agent
 
 Launch [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [OpenClaw](https://github.com/AIGC-Hackers/openclaw), [Codex](https://github.com/openai/codex), or any coding agent of your choice. The skills installed by `claw setup` activate automatically when you mention drama production.
