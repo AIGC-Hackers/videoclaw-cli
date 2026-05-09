@@ -63,6 +63,20 @@ def _build_actual_start_map(alignment: Any, transition_dur: float = 0.5) -> dict
     return result
 
 
+def _is_seedance_model(model_id: Any) -> bool:
+    return str(model_id or "").startswith("seedance")
+
+
+def _uses_seedance_cogenerated_audio(state: ProjectState) -> bool:
+    """Return True when TTS voice tracks should not be overlaid in compose."""
+    if state.metadata.get("overlay_tts_audio") is True:
+        return False
+    model_id = state.metadata.get("model_id")
+    if _is_seedance_model(model_id):
+        return True
+    return any(_is_seedance_model(shot.model_id) for shot in state.storyboard)
+
+
 class DAGExecutor:
     """Execute a :class:`DAG` asynchronously, honouring dependency order.
 
@@ -715,6 +729,10 @@ class DAGExecutor:
                 len(character_refs_ordered), shot_id,
             )
 
+        model_id = node.params.get("model_id") or shot.model_id
+        if _is_seedance_model(model_id):
+            extra.setdefault("generate_audio", True)
+
         registry = get_registry()
         registry.discover()
 
@@ -1308,8 +1326,9 @@ class DAGExecutor:
         # Build scene_id → cumulative actual start time map for audio re-sync
         actual_start_map: dict[str, float] = _build_actual_start_map(alignment) if alignment else {}
 
+        skip_voice_overlay = _uses_seedance_cogenerated_audio(state)
         raw_manifest = state.assets.get("audio_manifest")
-        if raw_manifest:
+        if raw_manifest and not skip_voice_overlay:
             from videoclaw.drama.models import LineType
             manifest_data = _json.loads(raw_manifest)
             for seg in manifest_data.get("segments", []):
@@ -1331,7 +1350,7 @@ class DAGExecutor:
                         volume=vol,
                         start_time=start_time,
                     ))
-        else:
+        elif not skip_voice_overlay:
             tts_data = state.assets.get("tts_audio")
             if tts_data:
                 for entry in _json.loads(tts_data):
@@ -1342,6 +1361,10 @@ class DAGExecutor:
                             type=AudioType.VOICE,
                             volume=0.9,
                         ))
+        elif raw_manifest or state.assets.get("tts_audio"):
+            logger.info(
+                "[compose] Skipping TTS voice overlay for Seedance co-generated audio"
+            )
 
         # Add music track if available
         music_path_str = state.assets.get("music", "")

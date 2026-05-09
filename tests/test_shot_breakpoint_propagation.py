@@ -254,6 +254,45 @@ async def test_run_episode_cleans_up_subscription_on_failure(tmp_path: Path) -> 
             assert after_count == before_count
 
 
+async def test_run_episode_persists_project_id_before_executor_failure() -> None:
+    """A failed run should still leave episode.project_id saved for recovery."""
+    bus = EventBus()
+    series = _make_series()
+    ep = series.episodes[0]
+
+    runner = DramaRunner(auto_refresh_urls=False)
+
+    with (
+        patch.object(runner, "state_mgr") as mock_sm,
+        patch("videoclaw.drama.runner.build_episode_dag") as mock_build,
+        patch("videoclaw.drama.runner.event_bus", bus),
+        patch("videoclaw.drama.runner.DAGExecutor") as mock_exec_cls,
+    ):
+        mock_state = MagicMock()
+        mock_state.project_id = "proj_recoverable"
+        mock_state.assets = {}
+
+        def _build_with_project_id(*_args: Any, **_kwargs: Any) -> tuple[MagicMock, MagicMock]:
+            ep.project_id = mock_state.project_id
+            return MagicMock(), mock_state
+
+        mock_build.side_effect = _build_with_project_id
+        mock_sm.save_async = AsyncMock()
+
+        runner.drama_mgr = MagicMock()
+        runner.drama_mgr.save_async = AsyncMock()
+
+        mock_exec = MagicMock()
+        mock_exec.run = AsyncMock(side_effect=RuntimeError("network timeout"))
+        mock_exec_cls.return_value = mock_exec
+
+        with pytest.raises(RuntimeError, match="network timeout"):
+            await runner.run_episode(series, ep)
+
+        assert ep.project_id == "proj_recoverable"
+        runner.drama_mgr.save_async.assert_awaited_once_with(series)
+
+
 async def test_run_series_no_handler_leak() -> None:
     """Running 2 episodes leaves no stale handlers on the bus."""
     bus = EventBus()
@@ -411,3 +450,42 @@ async def test_regenerate_scene_cleans_up_subscription() -> None:
 
         after_count = len(bus._handlers.get(TASK_COMPLETED, []))
         assert after_count == before_count
+
+
+async def test_regenerate_scene_updates_episode_status() -> None:
+    """A completed regen project should be reflected in the episode metadata."""
+    from videoclaw.drama.models import EpisodeStatus
+
+    series = _make_series()
+    ep = series.episodes[0]
+    ep.project_id = "proj_regen_status"
+
+    runner = DramaRunner(auto_refresh_urls=False)
+
+    with (
+        patch.object(runner, "state_mgr") as mock_sm,
+        patch("videoclaw.drama.runner.build_scene_regen_dag") as mock_regen_dag,
+        patch("videoclaw.drama.runner.DAGExecutor") as mock_exec_cls,
+    ):
+        mock_state = MagicMock()
+        mock_state.project_id = "proj_regen_status"
+        mock_state.status = MagicMock(value="completed")
+        mock_state.cost_total = 2.2
+        mock_state.storyboard = []
+
+        mock_sm.load_async = AsyncMock(return_value=mock_state)
+        mock_sm.save_async = AsyncMock()
+
+        mock_regen_dag.return_value = MagicMock()
+
+        mock_exec = MagicMock()
+        mock_exec.run = AsyncMock(return_value=mock_state)
+        mock_exec_cls.return_value = mock_exec
+
+        runner.drama_mgr = MagicMock()
+        runner.drama_mgr.save_async = AsyncMock()
+
+        await runner.regenerate_scene(series, ep, "ep01_s01")
+
+        assert ep.status == EpisodeStatus.COMPLETED
+        assert ep.cost == 2.2

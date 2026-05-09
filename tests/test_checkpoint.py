@@ -15,6 +15,7 @@ from videoclaw.drama.checkpoint import (
     CheckpointStage,
     _scene_slug,
     _slugify,
+    generate_storyboard_html,
     generate_storyboard_md,
     resolve_skip_flags,
     restore_from_checkpoint,
@@ -822,6 +823,74 @@ async def test_generate_storyboard_md_standalone(tmp_path: Path):
     assert "6" in content  # duration
 
 
+def test_generate_storyboard_html_standalone(tmp_path: Path):
+    """storyboard.html should provide a readable table and transcript."""
+    from videoclaw.drama.models import DramaScene, DramaSeries, Episode, ShotScale, ShotType
+
+    series = DramaSeries(
+        series_id="html_storyboard",
+        title="HTML Storyboard",
+        genre="drama",
+        synopsis="Test HTML generation.",
+        aspect_ratio="9:16",
+        model_id="seedance-2.0",
+    )
+    episode = Episode(
+        episode_id="ep1",
+        number=1,
+        title="Pilot",
+        scenes=[
+            DramaScene(
+                scene_id="ep01_s01",
+                description="Ivy confronts Colton.",
+                visual_prompt="Cafe interior, Ivy confronts Colton, warm window light",
+                duration_seconds=6.0,
+                dialogue="I didn't expect you.",
+                speaking_character="Ivy",
+                shot_scale=ShotScale.MEDIUM,
+                shot_type=ShotType.ACTION,
+                characters_present=["Ivy", "Colton"],
+                emotion="tense",
+                act_number="act_1",
+                scene_group="A",
+            )
+        ],
+    )
+
+    html_path = generate_storyboard_html(series, episode, review_dir=tmp_path)
+
+    html = html_path.read_text(encoding="utf-8")
+    assert html_path.name == "storyboard.html"
+    assert '<main class="storyboard">' in html
+    assert "HTML Storyboard" in html
+    assert "Ivy confronts Colton." in html
+    assert "I didn&#x27;t expect you." in html
+    assert "medium" in html
+
+
+@pytest.mark.asyncio
+async def test_build_review_dir_writes_storyboard_html(tmp_path: Path):
+    from videoclaw.drama.checkpoint import build_review_dir
+    from videoclaw.drama.models import DramaScene, DramaSeries, Episode
+
+    series = DramaSeries(series_id="html_review", title="HTML Review")
+    episode = Episode(
+        number=1,
+        title="Pilot",
+        scenes=[DramaScene(scene_id="ep01_s01", description="Opening shot")],
+    )
+
+    review_dir = build_review_dir(
+        series,
+        episode,
+        deliverables_dir=tmp_path / "deliverables",
+        projects_dir=tmp_path / "projects",
+    )
+
+    assert (review_dir / "storyboard.md").exists()
+    assert (review_dir / "storyboard.html").exists()
+
+
 # ---------------------------------------------------------------------------
 # Base dir required invariant (prevents test leakage into real deliverables dir)
 # ---------------------------------------------------------------------------
@@ -1600,6 +1669,62 @@ async def test_build_review_dir_populates_all_subdirs(tmp_path: Path):
         assert not (review_dir / empty).exists()
 
 
+@pytest.mark.asyncio
+async def test_build_review_dir_links_project_composed_final(tmp_path: Path):
+    """build_review_dir must expose composed videos from the runtime project.
+
+    The current runner writes ``composed*.mp4`` under
+    ``{projects_dir}/{episode.project_id}/``.  Export/review must link that
+    file into deliverables so human auditors do not need to inspect the
+    runtime project directory.
+    """
+    from videoclaw.drama.checkpoint import build_review_dir
+    from videoclaw.drama.models import DramaManager, DramaSeries, Episode
+
+    project_id = "project_with_final"
+    composed = tmp_path / project_id / "composed_final.mp4"
+    composed.parent.mkdir(parents=True)
+    composed.write_bytes(b"final")
+
+    series = DramaSeries(
+        series_id="final_test",
+        title="Final Test",
+        genre="test",
+        synopsis="test",
+    )
+    episode = Episode(
+        episode_id="ep1",
+        number=1,
+        title="Pilot",
+        synopsis="test",
+        opening_hook="",
+        project_id=project_id,
+    )
+    series.episodes.append(episode)
+
+    DramaManager(base_dir=tmp_path).save(series)
+
+    review_dir = build_review_dir(
+        series,
+        episode,
+        deliverables_dir=tmp_path / "deliverables",
+        projects_dir=tmp_path,
+    )
+
+    final_link = review_dir / "final" / "composed_final.mp4"
+    assert final_link.is_symlink()
+    assert final_link.resolve() == composed
+
+    build_review_dir(
+        series,
+        episode,
+        deliverables_dir=tmp_path / "deliverables",
+        projects_dir=tmp_path,
+    )
+
+    assert not list((review_dir / "final").glob("*_v*.mp4"))
+
+
 # ---------------------------------------------------------------------------
 # _normalize_char_name — case-insensitive char-name → filename slug
 # (Series-View plan Task 1)
@@ -1977,6 +2102,29 @@ class TestSeriesRootFor:
         ep_dir = review_dir_for_episode(series, ep, tmp_path)
         # ep_dir.parent must equal _series_root_for(series, tmp_path)
         assert ep_dir.parent == _series_root_for(series, tmp_path)
+
+    def test_same_title_series_get_copy_suffix(self, tmp_path):
+        from videoclaw.drama.checkpoint import build_series_view
+        from videoclaw.drama.models import DramaSeries
+
+        first = DramaSeries(title="恋爱好啊，得谈！", series_id="series_one")
+        second = DramaSeries(title="恋爱好啊，得谈！", series_id="series_two")
+
+        first_root = build_series_view(
+            first,
+            deliverables_dir=tmp_path,
+            projects_dir=tmp_path / "projects",
+        )
+        second_root = build_series_view(
+            second,
+            deliverables_dir=tmp_path,
+            projects_dir=tmp_path / "projects",
+        )
+
+        assert first_root == tmp_path / "恋爱好啊得谈"
+        assert second_root == tmp_path / "恋爱好啊得谈_副本2"
+        assert first.metadata["deliverables_slug"] == "恋爱好啊得谈"
+        assert second.metadata["deliverables_slug"] == "恋爱好啊得谈_副本2"
 
 
 # ---------------------------------------------------------------------------
@@ -2581,3 +2729,66 @@ class TestBuildSeriesView:
         )
         files2 = sorted(p.relative_to(series_root) for p in series_root.rglob("*"))
         assert files1 == files2
+
+    def test_writes_source_text_and_llm_html(self, tmp_path):
+        from videoclaw.drama.checkpoint import build_series_view
+        from videoclaw.drama.models import DramaScene, Episode
+
+        series, deliverables, projects = self._setup(tmp_path)
+        series.metadata["source_script_text"] = "剧名：《测试》\n第一集\n苏念念：你好"
+        series.episodes = [
+            Episode(
+                number=1,
+                title="Pilot",
+                scenes=[
+                    DramaScene(
+                        scene_id="ep01_s01",
+                        description="苏念念进门",
+                        dialogue="苏念念：你好",
+                        visual_prompt="vertical shot",
+                    )
+                ],
+            )
+        ]
+
+        series_root = build_series_view(
+            series, deliverables_dir=deliverables, projects_dir=projects
+        )
+
+        source_dir = series_root / "source"
+        assert (source_dir / "input_series.txt").read_text(encoding="utf-8").startswith(
+            "剧名：《测试》"
+        )
+        assert (source_dir / "input_series.html").exists()
+        html = (source_dir / "llm_input.html").read_text(encoding="utf-8")
+        assert 'data-videoclaw-format="drama-series-v1"' in html
+        assert "Source Script" in html
+        assert "苏念念进门" in html
+
+    def test_writes_import_metadata_html_as_llm_input(self, tmp_path):
+        from videoclaw.drama.checkpoint import build_series_view
+        from videoclaw.drama.models import Episode
+
+        series, deliverables, projects = self._setup(tmp_path)
+        series.metadata["source_script_text"] = "剧名：《测试》\n第一集"
+        series.metadata["source_script_html"] = (
+            '<!doctype html><html><body data-videoclaw-format="script-source-v1">'
+            "<pre>full source</pre></body></html>\n"
+        )
+        series.metadata["llm_import_html"] = (
+            '<!doctype html><html><body data-videoclaw-format="script-source-v1">'
+            "<pre>selected episode</pre></body></html>\n"
+        )
+        series.episodes = [Episode(number=1, title="Pilot")]
+
+        series_root = build_series_view(
+            series, deliverables_dir=deliverables, projects_dir=projects
+        )
+
+        source_dir = series_root / "source"
+        assert "full source" in (source_dir / "input_series.html").read_text(
+            encoding="utf-8"
+        )
+        assert "selected episode" in (source_dir / "llm_input.html").read_text(
+            encoding="utf-8"
+        )

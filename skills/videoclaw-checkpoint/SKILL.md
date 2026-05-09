@@ -50,9 +50,9 @@ above is authoritative.
 |---|---|---|
 | `drama run` exited mid-episode (network / quota / signal) | `checkpoint-resume <last_id>` | Pipeline continues from the next stage; already-generated assets reused |
 | Audit reported shots 3, 7, 9 failed; want to re-audit only | `audit-regen` (in `/videoclaw-workflow`) handles loop, but to manually re-do the audit stage: `checkpoint-redo <audit_id>` | Re-runs audit on existing shots; doesn't re-generate video |
-| Want to see what's at a snapshot | `checkpoint-show <id> --json` | Returns full snapshot dict |
+| Want to see what's at a snapshot | `claw --json drama checkpoint-show <id>` | Returns full snapshot dict |
 | Want to inspect generated mp4 / images | `checkpoint-assets <id>` | Lists semantic-named assets; `--open` opens dir in file manager |
-| Lost the `series_id` | `claw drama list --json` | Find it by title |
+| Lost the `series_id` | `claw --json drama list` | Find it by title |
 | Want to regen single shot only | `claw drama regen-shot <series_id> --episode N --shot M` | Bypasses checkpoint flow; regenerates one shot in place |
 | Want to edit a shot's prompt then regen | `claw drama edit-shot <series_id> --episode N --shot M` | Opens prompt in `$EDITOR`, regenerates on save |
 
@@ -133,7 +133,7 @@ claw drama export <series_id> --episode N    # episode-level export
 ### Network blip mid-run
 
 ```bash
-claw drama checkpoint-list abc123 --json | jq '.data.checkpoints | last'
+claw --json drama checkpoint-list abc123 | jq '.data.checkpoints | last'
 claw drama checkpoint-resume <last_id>
 ```
 
@@ -163,8 +163,8 @@ claw drama regen-shot abc123 --episode 1 --shot 7
 ### Lost track of series
 
 ```bash
-claw drama list --json | jq '.data.series'
+claw --json drama list | jq '.data.series'
 # pick the right one, then
-claw drama show <series_id> --json
+claw --json drama show <series_id>
 claw drama checkpoint-list <series_id>
 ```

@@ -33,7 +33,7 @@ metadata:
 | User has | Command | Use when |
 |---|---|---|
 | **Synopsis / concept only** | `claw drama new "<synopsis>" …` | Creative project; LLM should write the script |
-| **Finished .docx / .txt script** | `claw drama import <file> …` | Adaptation; script is locked, decomposition only |
+| **Finished .pdf / .docx / .txt script** | `claw drama import <file> …` | Adaptation; script is locked, decomposition only |
 | **Existing series, re-plan an episode** | `claw drama script <series_id> --episode N` | Already created; want fresh scene breakdown for one episode |
 
 The two creation modes write different state — once a series exists
@@ -71,13 +71,13 @@ The LLM writes a script under
 proceeding to Phase 2:
 
 ```bash
-claw drama show <series_id> --json
+claw --json drama show <series_id>
 ```
 
 ## Mode 2 — `drama import` (locked, decomposition only)
 
 ```bash
-claw drama import script.docx \
+claw drama import script.pdf \
     --title "Satan in a Suit" \
     --lang en \
     --style cinematic
@@ -94,8 +94,9 @@ plot, dialogue, or characterization. This is the right mode for:
 Default `--lang` is `en` for `import` (vs `zh` for `new`) — set
 explicitly to be safe.
 
-Supported formats: `.docx` (preferred, formatting preserved) and
-`.txt` (plain). PDF / Markdown not supported in 0.1.0.
+Supported formats: `.pdf` (text-based PDFs), `.docx` (paragraphs
+preserved), and `.txt` (plain UTF-8). Scanned/OCR-less PDFs are
+rejected with a clear error; OCR them to text before importing.
 
 ## Mode 3 — `drama script` (re-plan one episode)
 
@@ -129,7 +130,7 @@ After successful setup:
 The `<series_id>` is printed by the JSON envelope:
 
 ```bash
-claw drama new "..." --json | jq -r '.data.series_id'
+claw --json drama new "..." | jq -r '.data.series_id'
 ```
 
 Capture it — every subsequent command needs it.

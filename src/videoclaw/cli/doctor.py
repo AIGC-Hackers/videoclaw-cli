@@ -96,6 +96,7 @@ def doctor() -> None:
     from videoclaw.models.registry import get_registry
 
     registry = get_registry()
+    registry.discover()
     model_count = len(registry)
     table.add_row(
         "Registered models",
@@ -127,6 +128,7 @@ def doctor() -> None:
 
     # -- Disk space ---------------------------------------------------------
     try:
+        cfg.projects_dir.mkdir(parents=True, exist_ok=True)
         stat = shutil.disk_usage(cfg.projects_dir.resolve())
         free_gb = stat.free / (1024**3)
         disk_ok = free_gb > 1.0
@@ -161,10 +163,6 @@ def doctor() -> None:
     console.print(table)
     console.print()
 
-    all_ok = all(c["ok"] for c in checks.values())
-    out.set_result({"checks": checks, "all_ok": all_ok})
-    out.emit()
-
     # Exit-code contract (per packaging/agent-cli.yaml):
     #   0 ok / 1 runtime / 2 usage / 3 auth needed / 4 blocked
     # If a *required* check failed (today: only Evolink key), exit 3 so
@@ -176,7 +174,14 @@ def doctor() -> None:
         for name, check in checks.items()
         if check.get("required")
     )
+    all_ok = all(c["ok"] for c in checks.values())
+    out.set_result({"checks": checks, "all_ok": all_ok})
     if required_failed:
+        out.set_error("Required authentication is missing.", code=3)
+        out.emit()
         raise typer.Exit(code=3)
     if not all_ok:
+        out.set_error("System diagnostics failed.", code=1)
+        out.emit()
         raise typer.Exit(code=1)
+    out.emit()

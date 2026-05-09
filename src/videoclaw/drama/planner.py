@@ -17,6 +17,7 @@ import logging
 import math
 import re
 from collections.abc import Callable
+from html import escape as _html_escape
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -33,15 +34,20 @@ from videoclaw.drama.models import (
     EpisodeStatus,
     SceneBlock,
     ScriptModification,
+    ShotScale,
+    ShotType,
 )
 
 logger = logging.getLogger(__name__)
+
+SUPPORTED_SCRIPT_FORMATS = (".docx", ".txt", ".pdf")
 
 # ---------------------------------------------------------------------------
 # Dialogue pacing helpers
 # ---------------------------------------------------------------------------
 
 _CJK_RE = re.compile(r'[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7ff]')
+_EPISODE_HEADING_RE = re.compile(r"(?m)^第[一二三四五六七八九十百千万0-9]+集\s*$")
 
 def _min_duration_for_dialogue(
     dialogue: str, max_cjk_cps: float = 3.5, max_en_wps: float = 2.5,
@@ -398,6 +404,7 @@ You are a professional short-drama storyboard decomposer for TikTok-style vertic
 
 # Shot count constraint (CRITICAL — read before decomposing)
 - Target: **6-12 shots** per episode (50-90s). HARD CEILING: 15 shots max.
+- episodes[0].scenes MUST be non-empty. Never return an episode without scenes.
 - ALL duration_seconds MUST NOT exceed the target maximum episode duration.
 - MERGE consecutive fine-grained actions into COMPOSITE shots.
   Each shot can contain multiple narrative beats (dialogue + reaction + transition).
@@ -548,11 +555,27 @@ class DramaPlanner:
     def _validate_required_arrays(data: dict[str, Any], required_arrays: tuple[str, ...]) -> None:
         missing = [
             key for key in required_arrays
-            if not isinstance(data.get(key), list) or len(data.get(key, [])) == 0
+            if not DramaPlanner._required_array_present(data, key)
         ]
         if missing:
             joined = ", ".join(missing)
             raise ValueError(f"required JSON fields were missing or empty: {joined}")
+
+    @staticmethod
+    def _required_array_present(data: dict[str, Any], key: str) -> bool:
+        if key == "episodes.scenes":
+            episodes = data.get("episodes")
+            if not isinstance(episodes, list) or not episodes:
+                return False
+            for ep in episodes:
+                if not isinstance(ep, dict):
+                    continue
+                scenes = ep.get("scenes")
+                if isinstance(scenes, list) and scenes:
+                    return True
+            return False
+        value = data.get(key)
+        return isinstance(value, list) and bool(value)
 
     @staticmethod
     def _build_json_retry_messages(
@@ -744,15 +767,17 @@ class DramaPlanner:
 
     @staticmethod
     def read_script_file(path: str | Path) -> str:
-        """Read a complete script from a file (.docx or .txt).
+        """Read a complete script from a supported source file.
 
-        Returns the raw text content of the script.
+        Supported formats are ``.docx``, ``.txt``, and text-based ``.pdf``.
+        Returns normalized plain text for LLM storyboard decomposition.
         """
         path = Path(path)
         if not path.exists():
             raise FileNotFoundError(f"Script file not found: {path}")
 
-        if path.suffix.lower() == ".docx":
+        suffix = path.suffix.lower()
+        if suffix == ".docx":
             try:
                 from docx import Document
             except ImportError:
@@ -761,9 +786,351 @@ class DramaPlanner:
                     "Install it with: pip install python-docx"
                 )
             doc = Document(str(path))
-            return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
-        else:
-            return path.read_text(encoding="utf-8")
+            text = "\n\n".join(p.text for p in doc.paragraphs if p.text.strip())
+            return DramaPlanner._normalize_script_text(text, source="DOCX")
+
+        if suffix == ".txt":
+            return DramaPlanner._normalize_script_text(
+                path.read_text(encoding="utf-8"),
+                source="TXT",
+            )
+
+        if suffix == ".pdf":
+            return DramaPlanner._read_pdf_script(path)
+
+        supported = ", ".join(SUPPORTED_SCRIPT_FORMATS)
+        raise ValueError(
+            f"Unsupported script file format: {suffix or '(none)'}. "
+            f"Supported formats: {supported}."
+        )
+
+    @staticmethod
+    def infer_title_from_script(script_text: str) -> str:
+        """Infer a series title from common script/pitch text headings."""
+        lines = [line.strip() for line in script_text.splitlines() if line.strip()]
+        for line in lines[:40]:
+            for pattern in (
+                r"^(?:剧名|片名|标题|项目名|项目名称|作品名)\s*[：:]\s*(.+)$",
+                r"^(?:title|project)\s*[：:]\s*(.+)$",
+                r"^#\s+(.+)$",
+            ):
+                match = re.match(pattern, line, flags=re.IGNORECASE)
+                if match:
+                    return DramaPlanner._clean_inferred_title(match.group(1))
+
+            match = re.search(r"《([^》]{1,80})》", line)
+            if match:
+                return DramaPlanner._clean_inferred_title(match.group(1))
+
+        for line in lines[:10]:
+            cleaned = DramaPlanner._clean_inferred_title(line)
+            if cleaned and len(cleaned) <= 40 and not re.search(
+                r"(人物|小传|故事|梗概|大纲|第[一二三四五六七八九十\d]+集|episode)",
+                cleaned,
+                flags=re.IGNORECASE,
+            ):
+                return cleaned
+        return ""
+
+    @staticmethod
+    def _clean_inferred_title(text: str) -> str:
+        title = text.strip().strip("#：: -—\t")
+        if title.startswith("《") and title.endswith("》"):
+            title = title[1:-1]
+        return re.sub(r"\s+", " ", title).strip()
+
+    @staticmethod
+    def script_text_to_llm_html(
+        script_text: str,
+        *,
+        title: str = "",
+        language: str = "zh",
+        source_format: str = "text",
+    ) -> str:
+        """Convert extracted source text into the canonical LLM input HTML."""
+        inferred_title = title or DramaPlanner.infer_title_from_script(script_text)
+        doc_title = inferred_title or "Imported Drama Script"
+        return "\n".join([
+            "<!doctype html>",
+            f'<html lang="{_html_escape(language or "zh", quote=True)}">',
+            "<head>",
+            '  <meta charset="utf-8">',
+            "  <title>" + _html_escape(doc_title) + "</title>",
+            "</head>",
+            '<body data-videoclaw-format="script-source-v1">',
+            "  <article id=\"source-script\">",
+            "    <header>",
+            "      <h1>" + _html_escape(doc_title) + "</h1>",
+            "      <dl>",
+            f"        <dt>source_format</dt><dd>{_html_escape(source_format)}</dd>",
+            f"        <dt>language</dt><dd>{_html_escape(language or 'zh')}</dd>",
+            "      </dl>",
+            "    </header>",
+            "    <section id=\"script-text\">",
+            "      <h2>Script Text</h2>",
+            "      <pre>" + _html_escape(script_text) + "</pre>",
+            "    </section>",
+            "  </article>",
+            "</body>",
+            "</html>",
+            "",
+        ])
+
+    @staticmethod
+    def _read_pdf_script(path: Path) -> str:
+        """Extract ordered text from a text-based PDF."""
+        try:
+            from pypdf import PdfReader
+            from pypdf.errors import PdfReadError
+        except ImportError:
+            raise ImportError(
+                "pypdf is required to read .pdf files. Install it with: pip install pypdf"
+            )
+
+        try:
+            reader = PdfReader(str(path))
+            pages: list[str] = []
+            for page in reader.pages:
+                page_text = page.extract_text() or ""
+                if page_text.strip():
+                    pages.append(
+                        DramaPlanner._normalize_script_text(page_text, source="PDF page")
+                    )
+        except PdfReadError as exc:
+            raise ValueError(f"Unable to read PDF script: {exc}") from exc
+
+        if not pages:
+            raise ValueError(
+                "No extractable text found in PDF. Convert OCR/scanned PDFs to text first."
+            )
+
+        return DramaPlanner._normalize_script_text("\n\n".join(pages), source="PDF")
+
+    @staticmethod
+    def _normalize_script_text(text: str, *, source: str) -> str:
+        """Normalize extracted script text without reinterpreting the content."""
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n").replace("\x00", "")
+        lines = [line.rstrip() for line in normalized.split("\n")]
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        while lines and not lines[-1].strip():
+            lines.pop()
+        normalized = "\n".join(lines)
+        if not normalized.strip():
+            raise ValueError(f"No extractable text found in {source}.")
+        return normalized
+
+    @staticmethod
+    def _select_import_episode_text(script_text: str) -> str:
+        """Return source context plus the first episode for one-episode import.
+
+        ``drama import`` currently creates a single-episode series. For multi-episode
+        source documents, feeding every episode to one JSON decomposition call makes
+        the model more likely to truncate or emit invalid JSON. Keeping the source
+        bible/preamble plus episode 1 preserves character context and constrains the
+        LLM to the episode VideoClaw will actually run.
+        """
+        matches = list(_EPISODE_HEADING_RE.finditer(script_text))
+        if len(matches) < 2:
+            return script_text
+
+        first_start = matches[0].start()
+        second_start = matches[1].start()
+        selected = script_text[:second_start]
+        logger.info(
+            "Import source contains %d episode headings; using preamble + first episode "
+            "(%d of %d chars)",
+            len(matches),
+            len(selected),
+            len(script_text),
+        )
+        return selected if first_start >= 0 else script_text
+
+    @staticmethod
+    def _try_import_structured_script(series: DramaSeries, script_text: str) -> DramaSeries | None:
+        """Parse common Chinese screenplay text directly into VideoClaw scenes.
+
+        This deterministic path is intentionally conservative: it only activates
+        when explicit scene headings such as ``场 1-1`` are present. It avoids
+        spending an LLM call on already-structured scripts and prevents malformed
+        JSON from blocking import.
+        """
+        selected = DramaPlanner._select_import_episode_text(script_text)
+        heading_matches = list(
+            re.finditer(r"(?m)^场\s*(\d+)[-－](\d+)\s*([^\n]*)$", selected)
+        )
+        if not heading_matches:
+            return None
+
+        series.characters = DramaPlanner._parse_structured_characters(selected)
+        scenes = DramaPlanner._parse_structured_scenes(selected, heading_matches)
+        if not scenes:
+            return None
+
+        episode = Episode(
+            number=1,
+            title="Episode 1",
+            synopsis="Imported from structured source script.",
+            duration_seconds=sum(scene.duration_seconds for scene in scenes),
+            scenes=scenes,
+        )
+        episode.scene_blocks = _group_scenes_into_blocks(scenes, episode.number)
+        episode.script = json.dumps(
+            {
+                "title": episode.title,
+                "scenes": [scene.to_dict() for scene in scenes],
+                "source": "structured_import",
+            },
+            ensure_ascii=False,
+        )
+
+        series.episodes = [episode]
+        series.script_locked = True
+        series.script_source = "imported"
+        series.status = DramaStatus.PLANNING
+        logger.info(
+            "Structured script import produced %d character(s), %d scene(s)",
+            len(series.characters),
+            len(scenes),
+        )
+        return series
+
+    @staticmethod
+    def _parse_structured_characters(script_text: str) -> list[Character]:
+        first_episode = _EPISODE_HEADING_RE.search(script_text)
+        preamble = script_text[: first_episode.start()] if first_episode else script_text
+        characters: list[Character] = []
+        seen: set[str] = set()
+        pattern = re.compile(
+            r"(?ms)^([^\s（）()：:]{2,12})[（(][^）)]{1,20}[）)]："
+            r"(.+?)(?=^[^\s（）()：:]{2,12}[（(][^）)]{1,20}[）)]：|\Z)"
+        )
+        for match in pattern.finditer(preamble):
+            name = match.group(1).strip()
+            if name in seen:
+                continue
+            seen.add(name)
+            description = " ".join(
+                line.strip() for line in match.group(2).splitlines() if line.strip()
+            )
+            characters.append(
+                Character(
+                    name=name,
+                    description=description,
+                    visual_prompt=(
+                        f"Contemporary Chinese short-drama character: {name}. "
+                        f"{description}"
+                    ),
+                    voice_style="playful",
+                )
+            )
+        return characters
+
+    @staticmethod
+    def _parse_structured_scenes(
+        script_text: str,
+        heading_matches: list[re.Match[str]],
+    ) -> list[DramaScene]:
+        blocks: list[tuple[str, str, list[str]]] = []
+        for index, match in enumerate(heading_matches):
+            start = match.end()
+            end = (
+                heading_matches[index + 1].start()
+                if index + 1 < len(heading_matches)
+                else len(script_text)
+            )
+            heading = match.group(0).strip()
+            block_text = script_text[start:end]
+            lines = [
+                DramaPlanner._clean_script_line(line)
+                for line in block_text.splitlines()
+                if DramaPlanner._clean_script_line(line)
+            ]
+            if lines:
+                blocks.append((heading, match.group(3).strip(), lines))
+
+        beats: list[tuple[str, str, str, str]] = []
+        for block_index, (heading, heading_meta, lines) in enumerate(blocks):
+            group = chr(ord("A") + block_index)
+            time_of_day = DramaPlanner._time_of_day_from_heading(heading)
+            location = heading_meta or heading
+            for line in lines:
+                beats.append((group, time_of_day, location, line))
+
+        if not beats:
+            return []
+
+        target = min(10, max(6, math.ceil(len(beats) / 5))) if len(beats) >= 6 else len(beats)
+        chunk_size = max(1, math.ceil(len(beats) / target))
+        scenes: list[DramaScene] = []
+        known_names = set(DramaPlanner._speaker_from_line(beat[3]) for beat in beats)
+        known_names.discard("")
+
+        for index in range(0, len(beats), chunk_size):
+            chunk = beats[index : index + chunk_size]
+            scene_number = len(scenes) + 1
+            group = chunk[0][0]
+            time_of_day = chunk[0][1]
+            location = chunk[0][2]
+            lines = [item[3] for item in chunk]
+            description = " ".join(lines)
+            dialogue_lines = [line for line in lines if DramaPlanner._speaker_from_line(line)]
+            dialogue = "\n".join(dialogue_lines)
+            present = sorted(
+                name for name in known_names
+                if any(name and name in line for line in lines)
+            )
+            duration = _min_duration_for_dialogue(dialogue) if dialogue else 0.0
+            duration = min(15.0, max(5.0, duration or min(12.0, 5.0 + len(lines))))
+            scenes.append(
+                DramaScene(
+                    scene_id=f"ep01_s{scene_number:02d}",
+                    description=description,
+                    visual_prompt=(
+                        "Vertical 9:16 contemporary Chinese romantic-comedy short drama. "
+                        f"Location: {location}. Faithfully depict this source beat: "
+                        f"{description[:500]}"
+                    ),
+                    camera_movement="static" if scene_number == 1 else "dolly_in",
+                    duration_seconds=duration,
+                    dialogue=dialogue,
+                    shot_scale=ShotScale.MEDIUM_CLOSE if dialogue else ShotScale.MEDIUM,
+                    shot_type=ShotType.ACTION,
+                    emotion="shock" if scene_number == 1 else "tense",
+                    characters_present=present,
+                    transition="cut",
+                    sfx="",
+                    time_of_day=time_of_day,
+                    scene_group=group,
+                    shot_role=(
+                        "hook"
+                        if scene_number == 1
+                        else "cliffhanger"
+                        if index + chunk_size >= len(beats)
+                        else "normal"
+                    ),
+                )
+            )
+        return scenes
+
+    @staticmethod
+    def _clean_script_line(line: str) -> str:
+        return line.strip().lstrip("△").strip()
+
+    @staticmethod
+    def _speaker_from_line(line: str) -> str:
+        match = re.match(r"^([^：:（）()]{1,12})(?:[（(][^）)]{1,12}[）)])?[：:]", line)
+        return match.group(1).strip() if match else ""
+
+    @staticmethod
+    def _time_of_day_from_heading(heading: str) -> str:
+        if "夜" in heading:
+            return "night"
+        if "晚" in heading:
+            return "evening"
+        if "日" in heading or "白" in heading:
+            return "day"
+        return "unspecified"
 
     async def import_complete_script(
         self,
@@ -805,8 +1172,30 @@ class DramaPlanner:
         series.script_locked = True
         series.script_source = "imported"
         series.status = DramaStatus.PLANNING
+        if not series.title:
+            series.title = self.infer_title_from_script(script_text)
+        import_script_text = self._select_import_episode_text(script_text)
+        source_script_html = self.script_text_to_llm_html(
+            script_text,
+            title=series.title,
+            language=series.language,
+            source_format="extracted-text",
+        )
+        import_script_html = self.script_text_to_llm_html(
+            import_script_text,
+            title=series.title,
+            language=series.language,
+            source_format="selected-episode-text",
+        )
+        series.metadata.setdefault("source_script_text", script_text)
+        series.metadata.setdefault("source_script_html", source_script_html)
+        series.metadata.setdefault("llm_import_html", import_script_html)
+        series.metadata.setdefault("llm_import_payload_format", "html")
+        series.metadata.setdefault("llm_import_text", import_script_html)
 
-        llm = self._ensure_llm()
+        structured_series = self._try_import_structured_script(series, script_text)
+        if structured_series is not None:
+            return structured_series
 
         # Build the user message with the full script and character info
         characters_text = ""
@@ -826,32 +1215,25 @@ class DramaPlanner:
             f"Video model: Seedance 2.0 (5-15s per clip, audio co-generation)\n"
             f"HARD CONSTRAINT: 6-10 shots. NEVER exceed 12 shots. "
             f"Sum of durations MUST NOT exceed {max_dur:.0f}s.\n"
+            f"HARD CONSTRAINT: episodes[0].scenes MUST contain at least 6 shots.\n"
             f"{characters_text}\n\n"
-            f"=== COMPLETE SCRIPT (DO NOT MODIFY) ===\n\n"
-            f"{script_text}\n\n"
-            f"=== END OF SCRIPT ===\n\n"
-            f"Decompose this script into shot-by-shot storyboard. "
+            f"=== STANDARDIZED SCRIPT HTML (DO NOT MODIFY SOURCE CONTENT) ===\n\n"
+            f"{import_script_html}\n\n"
+            f"=== END OF STANDARDIZED SCRIPT HTML ===\n\n"
+            f"Decompose this HTML script into shot-by-shot storyboard. "
             f"Do NOT add or change any content."
         )
 
-        # Retry up to 3 times for JSON parse failures
-        last_error: Exception | None = None
-        for attempt in range(3):
-            raw = await llm.chat(
-                messages=[
-                    {"role": "system", "content": IMPORT_DECOMPOSE_PROMPT},
-                    {"role": "user", "content": user_message},
-                ],
-                max_tokens=16384,
-            )
-            try:
-                result = self._parse_json(raw)
-                break
-            except ValueError as e:
-                last_error = e
-                logger.warning("JSON parse attempt %d/3 failed: %s", attempt + 1, e)
-        else:
-            raise last_error  # type: ignore[misc]
+        result = await self._chat_json(
+            [
+                {"role": "system", "content": IMPORT_DECOMPOSE_PROMPT},
+                {"role": "user", "content": user_message},
+            ],
+            max_tokens=16384,
+            temperature=0.1,
+            attempts=3,
+            required_arrays=("episodes", "episodes.scenes"),
+        )
 
         # --- Extract characters ---
         if result.get("characters"):

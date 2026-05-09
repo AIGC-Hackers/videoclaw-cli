@@ -52,6 +52,7 @@ def config_show() -> None:
 
     # Directories
     table.add_row("projects_dir", str(cfg.projects_dir.resolve()))
+    table.add_row("deliverables_dir", str(cfg.deliverables_dir.resolve()))
     table.add_row("models_dir", str(cfg.models_dir.resolve()))
     table.add_row("", "")
 
@@ -83,6 +84,7 @@ def config_show() -> None:
     # JSON result (keys masked)
     result = {
         "projects_dir": str(cfg.projects_dir.resolve()),
+        "deliverables_dir": str(cfg.deliverables_dir.resolve()),
         "models_dir": str(cfg.models_dir.resolve()),
         "default_llm": cfg.default_llm,
         "default_video_model": cfg.default_video_model,
@@ -163,7 +165,11 @@ def config_check() -> None:
         if (cfg.openai_api_key or os.environ.get("OPENAI_API_KEY") or cfg.anthropic_api_key)
         else "none configured"
     )
-    table.add_row("LLM API key", status_icon(llm_ok), f"{llm_provider} — needed for script/storyboard generation")
+    table.add_row(
+        "LLM API key",
+        status_icon(llm_ok),
+        f"{llm_provider} — needed for script/storyboard generation",
+    )
     checks["llm_api_key"] = {"ok": llm_ok}
 
     # Image generation key (for character/scene references)

@@ -261,8 +261,12 @@ def drama_run(
     console = get_console()
     out = get_output()
     out._command = "drama.run"
+    if out.json_mode:
+        review = False
+        shot_breakpoint = False
 
     from rich.panel import Panel  # deferred — rich.panel costs ~87ms at startup
+
     from videoclaw.drama.models import DramaManager
 
     mgr = DramaManager()
@@ -334,6 +338,19 @@ def drama_run(
         out.emit()
         raise typer.Exit(code=1)
 
+    failed_episodes = [
+        ep.number for ep in series.episodes
+        if start <= ep.number <= (end or len(series.episodes))
+        and ep.status != "completed"
+    ]
+    if failed_episodes:
+        message = "Episode generation failed: " + ", ".join(
+            f"episode {num}" for num in failed_episodes
+        )
+        out.set_error(message)
+        out.emit()
+        raise typer.Exit(code=1)
+
     out.set_result({
         "series_id": series.series_id,
         "status": series.status.value,
@@ -356,8 +373,14 @@ async def _drama_run_async(
 
     from rich.panel import Panel  # deferred
     from rich.progress import (  # deferred — rich.progress costs ~87ms at startup
-        BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeElapsedColumn,
+        BarColumn,
+        Progress,
+        SpinnerColumn,
+        TaskProgressColumn,
+        TextColumn,
+        TimeElapsedColumn,
     )
+
     from videoclaw.drama.planner import DramaPlanner
     from videoclaw.drama.runner import DramaRunner
 
@@ -426,8 +449,12 @@ async def _drama_run_async(
                     elif c.reference_image:
                         _run_available_refs["characters"][c.name] = c.reference_image
                 if series.consistency_manifest:
-                    _run_available_refs["scenes"] = dict(series.consistency_manifest.scene_references)
-                    _run_available_refs["props"] = dict(series.consistency_manifest.prop_references)
+                    _run_available_refs["scenes"] = dict(
+                        series.consistency_manifest.scene_references
+                    )
+                    _run_available_refs["props"] = dict(
+                        series.consistency_manifest.prop_references
+                    )
                 enhancer = PromptEnhancer()
                 enhancer.enhance_all_scenes(ep, series, available_refs=_run_available_refs)
 
@@ -559,6 +586,7 @@ def drama_regen_shot(
     out._command = "drama.regen-shot"
 
     from rich.panel import Panel  # deferred — already cached if drama run was called before
+
     from videoclaw.drama.models import DramaManager
 
     mgr = DramaManager()
@@ -633,8 +661,14 @@ async def _drama_regen_shot_async(
 
     from rich.panel import Panel  # deferred — already cached after first drama run
     from rich.progress import (  # deferred — already cached after first drama run
-        BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeElapsedColumn,
+        BarColumn,
+        Progress,
+        SpinnerColumn,
+        TaskProgressColumn,
+        TextColumn,
+        TimeElapsedColumn,
     )
+
     from videoclaw.drama.runner import DramaRunner
 
     runner = DramaRunner(drama_manager=mgr)

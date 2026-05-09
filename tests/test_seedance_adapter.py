@@ -65,6 +65,21 @@ class TestSeedanceAdapterProperties:
         from videoclaw.models.protocol import ExecutionMode
         assert self._make_adapter().execution_mode == ExecutionMode.CLOUD
 
+    def test_poll_timeout_can_be_overridden_by_env(self, monkeypatch):
+        from videoclaw.models.adapters.seedance import _poll_timeout_s
+
+        monkeypatch.setenv("VIDEOCLAW_VIDEO_POLL_TIMEOUT_S", "0")
+        assert _poll_timeout_s() == 0.0
+
+    def test_invalid_poll_timeout_uses_default(self, monkeypatch):
+        from videoclaw.models.adapters.seedance import (
+            _POLL_TIMEOUT_S,
+            _poll_timeout_s,
+        )
+
+        monkeypatch.setenv("VIDEOCLAW_VIDEO_POLL_TIMEOUT_S", "not-a-number")
+        assert _poll_timeout_s() == _POLL_TIMEOUT_S
+
 
 class TestSeedanceContentBuilder:
     def _make_adapter(self) -> SeedanceVideoAdapter:
@@ -112,6 +127,78 @@ class TestSeedanceContentBuilder:
             "https://example.com/a.png",
             "https://example.com/b.png",
         ]
+
+    def test_reference_audio_requires_media_reference(self):
+        from videoclaw.models.protocol import GenerationRequest
+
+        request = GenerationRequest(
+            prompt="Character speaks with a voice reference.",
+            extra={
+                "reference_audios": [
+                    {"url": "https://example.com/voice.mp3"},
+                ],
+            },
+        )
+
+        content = self._make_adapter()._build_content(request)
+
+        assert not [item for item in content if item["type"] == "audio_url"]
+
+    def test_reference_audio_rejects_non_http_urls(self):
+        from videoclaw.models.protocol import GenerationRequest
+
+        request = GenerationRequest(
+            prompt="Character speaks with a voice reference.",
+            extra={
+                "image_urls": [
+                    {"url": "https://example.com/character.png", "role": "reference_image"},
+                ],
+                "reference_audios": [
+                    {"url": "/tmp/voice.mp3"},
+                    {"url": "https://example.com/voice.mp3"},
+                ],
+            },
+        )
+
+        content = self._make_adapter()._build_content(request)
+        audio_urls = [
+            item["audio_url"]["url"]
+            for item in content
+            if item["type"] == "audio_url"
+        ]
+
+        assert audio_urls == ["https://example.com/voice.mp3"]
+
+    def test_reference_video_rejects_non_http_urls(self):
+        from videoclaw.models.protocol import GenerationRequest
+
+        request = GenerationRequest(
+            prompt="Use this motion reference.",
+            extra={
+                "reference_videos": [
+                    {"url": "file:///tmp/reference.mp4"},
+                    {"url": "https://example.com/reference.mp4"},
+                ],
+            },
+        )
+
+        content = self._make_adapter()._build_content(request)
+        video_urls = [
+            item["video_url"]["url"]
+            for item in content
+            if item["type"] == "video_url"
+        ]
+
+        assert video_urls == ["https://example.com/reference.mp4"]
+
+    def test_payload_generates_audio_by_default(self):
+        from videoclaw.models.protocol import GenerationRequest
+
+        payload = self._make_adapter()._build_payload(
+            GenerationRequest(prompt="Dialogue line.", duration_seconds=6)
+        )
+
+        assert payload["generate_audio"] is True
 
     @pytest.mark.asyncio
     async def test_download_video_follows_redirects(self, monkeypatch):

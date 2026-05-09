@@ -708,6 +708,69 @@ class TestComposeHandler:
         mock_instance.compose.assert_called_once()
         mock_instance.render_final.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_compose_skips_tts_overlay_for_seedance_default(self, tmp_path):
+        sm = StateManager(projects_dir=tmp_path)
+        project_dir = tmp_path / "seedance_project"
+        shots_dir = project_dir / "shots"
+        audio_dir = project_dir / "audio"
+        shots_dir.mkdir(parents=True)
+        audio_dir.mkdir(parents=True)
+        video_path = shots_dir / "s01.mp4"
+        audio_path = audio_dir / "s01_dialogue.mp3"
+        subtitle_path = project_dir / "subtitles.ass"
+        video_path.write_bytes(b"video")
+        audio_path.write_bytes(b"dialogue audio")
+        subtitle_path.write_text("[Script Info]\nTitle: Test\n", encoding="utf-8")
+
+        state = ProjectState(
+            project_id="seedance_project",
+            prompt="test",
+            storyboard=[
+                Shot(shot_id="s01", asset_path=str(video_path), model_id="seedance-2.0"),
+            ],
+            metadata={"model_id": "seedance-2.0"},
+            assets={
+                "tts_audio": json.dumps([{"path": str(audio_path), "type": "dialogue"}]),
+                "subtitles": str(subtitle_path),
+            },
+        )
+        node = TaskNode(
+            node_id="compose",
+            task_type=TaskType.COMPOSE,
+            params={
+                "transition": "dissolve",
+                "scenes": [
+                    {"scene_id": "s01", "dialogue": "Hello", "duration_seconds": 5.0},
+                ],
+            },
+        )
+        dag = DAG()
+        dag.add_node(node)
+        executor = DAGExecutor(dag=dag, state=state, state_manager=sm)
+
+        from videoclaw.generation.compose import AlignedClip, AlignmentReport
+
+        mock_report = AlignmentReport(
+            clips=[AlignedClip("s01", video_path, 5.0, 5.0, "dissolve")],
+            misaligned_scene_ids=[],
+            total_scripted=5.0,
+            total_actual=5.0,
+        )
+        mock_validation = {"ok": True, "expected": 5.0, "actual": 5.0, "drift": 0.0}
+
+        with patch("videoclaw.generation.compose.align_clips", new_callable=AsyncMock, return_value=mock_report), \
+             patch("videoclaw.generation.compose.validate_composed_duration", new_callable=AsyncMock, return_value=mock_validation), \
+             patch("videoclaw.generation.compose.VideoComposer") as MockComposer:
+            mock_instance = MockComposer.return_value
+            mock_instance.compose = AsyncMock(return_value=project_dir / "composed.mp4")
+            mock_instance.render_final = AsyncMock(return_value=project_dir / "composed_final.mp4")
+
+            await executor._handle_compose(node, state)
+
+        render_kwargs = mock_instance.render_final.call_args.kwargs
+        assert render_kwargs["audio_tracks"] == []
+
 
 # ---------------------------------------------------------------------------
 # Handler: _handle_render

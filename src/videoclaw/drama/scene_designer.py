@@ -19,7 +19,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from videoclaw.drama.models import DramaManager, DramaSeries, Episode
+from videoclaw.drama.models import DramaManager, DramaSeries, Episode, ShotScale, ShotType
 from videoclaw.generation.image_provider import resolve_image_generator
 
 logger = logging.getLogger(__name__)
@@ -124,7 +124,7 @@ def extract_locations(episodes: list[Episode]) -> list[SceneLocation]:
     Groups scenes by normalised location keywords and returns a deduplicated
     list of :class:`SceneLocation` objects.
     """
-    seen: dict[str, SceneLocation] = {}
+    seen: dict[str, tuple[int, SceneLocation]] = {}
 
     for ep in episodes:
         for scene in ep.scenes:
@@ -134,13 +134,16 @@ def extract_locations(episodes: list[Episode]) -> list[SceneLocation]:
                 continue
 
             normalised = _normalise_key(loc_key)
-            if normalised not in seen:
-                seen[normalised] = SceneLocation(
+            group_key = scene.scene_group or normalised
+            score = _location_anchor_score(scene)
+            description = _location_description(scene, loc_key)
+            if group_key not in seen or score > seen[group_key][0]:
+                seen[group_key] = (score, SceneLocation(
                     name=normalised,
-                    description=loc_key,
-                )
+                    description=description,
+                ))
 
-    return list(seen.values())
+    return [loc for _, loc in seen.values()]
 
 
 def extract_props(episodes: list[Episode]) -> list[PropAsset]:
@@ -157,6 +160,8 @@ def extract_props(episodes: list[Episode]) -> list[PropAsset]:
             text = f"{scene.visual_prompt} {scene.dialogue} {scene.description}".lower()
             scene_id = scene.scene_id
 
+            detail_scene = _is_detail_scene(scene)
+
             # Extract props via keyword patterns
             for prop_name, pattern in _PROP_PATTERNS:
                 if re.search(pattern, text, re.IGNORECASE):
@@ -164,14 +169,27 @@ def extract_props(episodes: list[Episode]) -> list[PropAsset]:
                         prop_mentions[prop_name] = {
                             "description": _extract_prop_description(prop_name, text),
                             "scenes": [],
+                            "important": False,
                         }
                     if scene_id not in prop_mentions[prop_name]["scenes"]:
                         prop_mentions[prop_name]["scenes"].append(scene_id)
+                    if detail_scene:
+                        prop_mentions[prop_name]["important"] = True
 
-    # Only keep props that appear in 2+ scenes (need consistency) or are dramatically important
+    # Prefer specific object assets over broad category aliases from the
+    # same evidence, e.g. "contract folder" should not also create a generic
+    # "document" reference.
+    if "folder" in prop_mentions and "document" in prop_mentions:
+        folder_scenes = set(prop_mentions["folder"]["scenes"])
+        doc_scenes = set(prop_mentions["document"]["scenes"])
+        if doc_scenes.issubset(folder_scenes):
+            prop_mentions.pop("document", None)
+
+    # Keep recurring props and single-shot detail props. A detail shot is
+    # usually included specifically because the object carries story meaning.
     props: list[PropAsset] = []
     for name, info in prop_mentions.items():
-        if len(info["scenes"]) >= 2:
+        if len(info["scenes"]) >= 2 or info.get("important"):
             props.append(PropAsset(
                 name=name,
                 description=info["description"],
@@ -195,6 +213,7 @@ _PROP_PATTERNS: list[tuple[str, str]] = [
     ("photograph", r"\b(photo|photograph|picture\s*frame)\b"),
     ("key", r"\b(key|key\s*card)\b"),
     ("bag", r"\b(bag|purse|briefcase|suitcase)\b"),
+    ("folder", r"\b(folder|file\s*folder|contract\s*folder)\b"),
 ]
 
 
@@ -225,6 +244,44 @@ def _normalise_key(text: str) -> str:
     text = re.sub(r"[^a-z0-9\u4e00-\u9fff\s]", "", text)
     text = re.sub(r"\s+", "_", text)
     return text[:60]
+
+
+def _location_anchor_score(scene: Any) -> int:
+    """Rank which shot should represent a scene-group location."""
+    shot_type = getattr(scene, "shot_type", None)
+    shot_scale = getattr(scene, "shot_scale", None)
+    if shot_type == ShotType.ESTABLISHING:
+        return 100
+    if shot_scale in (ShotScale.WIDE, ShotScale.EXTREME_WIDE):
+        return 80
+    if shot_scale == ShotScale.MEDIUM:
+        return 50
+    if shot_scale == ShotScale.MEDIUM_CLOSE:
+        return 20
+    if shot_type == ShotType.DETAIL or shot_scale == ShotScale.CLOSE_UP:
+        return 5
+    return 10
+
+
+def _location_description(scene: Any, loc_key: str) -> str:
+    parts = [loc_key]
+    shot_scale = getattr(scene, "shot_scale", None)
+    if shot_scale:
+        parts.append(f"shot_scale={shot_scale.value}")
+    shot_type = getattr(scene, "shot_type", None)
+    if shot_type:
+        parts.append(f"shot_type={shot_type.value}")
+    time_of_day = getattr(scene, "time_of_day", "")
+    if time_of_day:
+        parts.append(f"time_of_day={time_of_day}")
+    return " | ".join(parts)
+
+
+def _is_detail_scene(scene: Any) -> bool:
+    return (
+        getattr(scene, "shot_type", None) == ShotType.DETAIL
+        or getattr(scene, "shot_scale", None) == ShotScale.CLOSE_UP
+    )
 
 
 class SceneDesigner:
