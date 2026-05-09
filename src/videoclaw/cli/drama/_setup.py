@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -158,7 +159,7 @@ def drama_new(
 def drama_import(
     script_file: Annotated[
         str,
-        typer.Argument(help="Path to complete script file (.docx or .txt)."),
+        typer.Argument(help="Path to complete script file (.docx, .txt, or text-based .pdf)."),
     ],
     title: Annotated[
         str | None, typer.Option("--title", "-t", help="Series title.")
@@ -196,9 +197,10 @@ def drama_import(
     """Import a complete script and decompose into storyboard shots.
 
     \b
-    Imports a FINALIZED script from a .docx or .txt file. The script is
-    treated as LOCKED -- no creative modifications are allowed. The system
-    only decomposes scenes into Seedance 2.0-compatible shots (4-15s each).
+    Imports a FINALIZED script from a .docx, .txt, or text-based .pdf file.
+    The script is treated as LOCKED -- no creative modifications are allowed.
+    The system only decomposes scenes into Seedance 2.0-compatible shots
+    (4-15s each). Scanned/OCR-less PDFs must be converted to text first.
 
     \b
     Default video model: Seedance 2.0
@@ -210,6 +212,7 @@ def drama_import(
     \b
     Example:
       claw drama import script.docx --title "Satan in a Suit" --lang en
+      claw drama import pitch.pdf --title "恋爱好啊，得谈！" --lang zh
     """
     configure_logging(verbose)
     show_banner()
@@ -260,13 +263,20 @@ async def _drama_import_async(
         out.set_error(str(e))
         out.emit()
         raise typer.Exit(code=1)
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+        out.set_error(str(e))
+        out.emit()
+        raise typer.Exit(code=1)
 
     console.print(f"  Script length: {len(script_text)} characters")
 
     # 2. Create the series
+    inferred_title = title or planner.infer_title_from_script(script_text) or Path(script_file).stem
+
     mgr = DramaManager()
     series = mgr.create(
-        title=title or "",
+        title=inferred_title,
         synopsis="",
         genre=genre,
         total_episodes=1,
@@ -276,6 +286,10 @@ async def _drama_import_async(
         aspect_ratio=aspect_ratio,
         model_id=model,
     )
+    series.metadata.update({
+        "source_file": str(Path(script_file).expanduser().resolve()),
+        "source_file_name": Path(script_file).name,
+    })
 
     # 3. Human confirmation callback for detected gaps
     def _confirm_gaps(modifications: list[ScriptModification]) -> list[ScriptModification]:
@@ -322,19 +336,27 @@ async def _drama_import_async(
             confirm_callback=_confirm_gaps,
         )
 
-    mgr.save(series)
-
-    # 4b. Generate storyboard.md immediately for each episode
+    # 4b. Generate review assets immediately for each episode, then save the
+    # assigned deliverables slug with the series.
     from videoclaw.config import get_config
     from videoclaw.drama.checkpoint import (
-        generate_storyboard_md,
-        review_dir_for_episode,
+        build_review_dir,
+        ensure_deliverables_slug,
     )
     deliverables_dir = get_config().deliverables_dir
+    ensure_deliverables_slug(series, deliverables_dir)
+    mgr.save(series)
+
+    review_dirs: list[str] = []
     for ep in series.episodes:
-        review_dir = review_dir_for_episode(series, ep, base_dir=deliverables_dir)
-        sb_path = generate_storyboard_md(series, ep, review_dir=review_dir)
-        console.print(f"  [green]Storyboard written:[/green] {sb_path}")
+        review_dir = build_review_dir(
+            series,
+            ep,
+            deliverables_dir=deliverables_dir,
+            projects_dir=get_config().projects_dir,
+        )
+        review_dirs.append(str(review_dir))
+        console.print(f"  [green]Review assets written:[/green] {review_dir}")
 
     # 5. Display results
     console.print(
@@ -416,5 +438,7 @@ async def _drama_import_async(
         "title": series.title,
         "episodes": len(series.episodes),
         "total_scenes": sum(len(ep.scenes) for ep in series.episodes),
+        "deliverables_dir": str(deliverables_dir.resolve()),
+        "review_dirs": review_dirs,
     })
     out.emit()

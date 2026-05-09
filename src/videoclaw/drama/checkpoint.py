@@ -39,6 +39,7 @@ import sys
 import uuid
 from dataclasses import dataclass, field
 from enum import StrEnum
+from html import escape as _html_escape
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -75,6 +76,52 @@ def _scene_slug(index: int, description: str) -> str:
     if not slug:
         slug = "scene"
     return f"s{index + 1:02d}_{slug}"
+
+
+def _series_owner_id(series_root: Path) -> str:
+    marker = series_root / "_videoclaw_series.json"
+    if marker.exists():
+        try:
+            data = _json.loads(marker.read_text(encoding="utf-8"))
+            return str(data.get("series_id") or "")
+        except (OSError, ValueError):
+            return ""
+
+    series_md = series_root / "_SERIES.md"
+    if series_md.exists():
+        try:
+            match = re.search(
+                r"\|\s*Series ID\s*\|\s*([^|]+?)\s*\|",
+                series_md.read_text(encoding="utf-8"),
+            )
+            if match:
+                return match.group(1).strip()
+        except OSError:
+            return ""
+    return ""
+
+
+def ensure_deliverables_slug(series: DramaSeries, deliverables_dir: Path) -> str:
+    """Assign and return a stable human-facing deliverables slug for *series*.
+
+    Same-title series receive ``_副本N`` suffixes so audit folders never
+    overwrite each other. The chosen slug is persisted in ``series.metadata``.
+    """
+    existing = str(series.metadata.get("deliverables_slug") or "").strip()
+    if existing:
+        return existing
+
+    base_slug = _slugify(series.title) or series.series_id[:8]
+    candidate = base_slug
+    copy_index = 2
+    while True:
+        candidate_root = deliverables_dir / candidate
+        owner_id = _series_owner_id(candidate_root)
+        if not candidate_root.exists() or owner_id in ("", series.series_id):
+            series.metadata["deliverables_slug"] = candidate
+            return candidate
+        candidate = f"{base_slug}_副本{copy_index}"
+        copy_index += 1
 
 
 def _normalize_char_name(name: str) -> str:
@@ -204,7 +251,7 @@ def _series_root_for(series: DramaSeries, deliverables_dir: Path) -> Path:
     series-root paths used by ``_SERIES.md`` and ep-level filtered
     symlinks (Audit A8).
     """
-    series_slug = _slugify(series.title) or series.series_id[:8]
+    series_slug = ensure_deliverables_slug(series, deliverables_dir)
     return deliverables_dir / series_slug
 
 
@@ -327,7 +374,7 @@ def build_review_dir(
     _update_videos_dir(series, episode, review_dir / "videos", projects_dir)
     _update_audio_dir(series, episode, review_dir / "audio")
     _update_audit_dir(episode, review_dir / "audit", series_dir)
-    _update_final_dir(episode, review_dir / "final", series_dir)
+    _update_final_dir(episode, review_dir / "final", series_dir, projects_dir)
 
     generate_storyboard_md(series, episode, review_dir=review_dir)
     return review_dir
@@ -490,6 +537,11 @@ def _render_series_md(series: DramaSeries, series_root: Path) -> str:
     lines.append("| 字段 | 值 |")
     lines.append("|---|---|")
     lines.append(f"| Series ID | {series.series_id} |")
+    lines.append(f"| Deliverables Slug | {ensure_deliverables_slug(series, deliverables_dir)} |")
+    if _source_text_for_series(series):
+        lines.append("| 输入剧集 | [source/input_series.txt](source/input_series.txt) |")
+        lines.append("| 输入剧集 HTML | [source/input_series.html](source/input_series.html) |")
+        lines.append("| LLM HTML | [source/llm_input.html](source/llm_input.html) |")
     lines.append(
         f"| 集数 | {len(series.episodes)} "
         f"(audited {audited} / generating {generating} / pending {pending}) |"
@@ -612,6 +664,128 @@ def _write_series_md(series: DramaSeries, series_root: Path) -> Path:
     return path
 
 
+def _write_series_marker(series: DramaSeries, series_root: Path) -> Path:
+    marker = series_root / "_videoclaw_series.json"
+    marker.write_text(
+        _json.dumps(
+            {
+                "series_id": series.series_id,
+                "title": series.title,
+                "deliverables_slug": ensure_deliverables_slug(series, series_root.parent),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return marker
+
+
+def _source_text_for_series(series: DramaSeries) -> str:
+    source_text = str(series.metadata.get("source_script_text") or "").strip()
+    if source_text:
+        return source_text
+    scripts = [ep.script.strip() for ep in series.episodes if ep.script and ep.script.strip()]
+    return "\n\n".join(scripts)
+
+
+def _render_llm_input_html(series: DramaSeries, source_text: str) -> str:
+    """Render a compact semantic HTML packet for downstream LLM ingestion."""
+    lines: list[str] = [
+        "<!doctype html>",
+        '<html lang="' + _html_escape(series.language or "zh", quote=True) + '">',
+        "<head>",
+        '  <meta charset="utf-8">',
+        "  <title>" + _html_escape(series.title or series.series_id) + "</title>",
+        "</head>",
+        '<body data-videoclaw-format="drama-series-v1" '
+        f'data-series-id="{_html_escape(series.series_id, quote=True)}">',
+        "  <article>",
+        "    <header>",
+        "      <h1>" + _html_escape(series.title or series.series_id) + "</h1>",
+        "      <dl>",
+        f"        <dt>series_id</dt><dd>{_html_escape(series.series_id)}</dd>",
+        f"        <dt>language</dt><dd>{_html_escape(series.language)}</dd>",
+        f"        <dt>aspect_ratio</dt><dd>{_html_escape(series.aspect_ratio)}</dd>",
+        f"        <dt>model_id</dt><dd>{_html_escape(series.model_id)}</dd>",
+        f"        <dt>script_source</dt><dd>{_html_escape(series.script_source)}</dd>",
+        "      </dl>",
+        "    </header>",
+    ]
+    if source_text:
+        lines.extend([
+            '    <section id="source-script">',
+            "      <h2>Source Script</h2>",
+            "      <pre>" + _html_escape(source_text) + "</pre>",
+            "    </section>",
+        ])
+
+    if series.characters:
+        lines.extend(['    <section id="characters">', "      <h2>Characters</h2>"])
+        for char in series.characters:
+            lines.extend([
+                f'      <section data-character="{_html_escape(char.name, quote=True)}">',
+                "        <h3>" + _html_escape(char.name) + "</h3>",
+                "        <p>" + _html_escape(char.description or char.visual_prompt) + "</p>",
+                "      </section>",
+            ])
+        lines.append("    </section>")
+
+    lines.extend(['    <section id="episodes">', "      <h2>Episodes</h2>"])
+    for ep in sorted(series.episodes, key=lambda item: item.number):
+        lines.extend([
+            f'      <section data-episode="{ep.number}">',
+            f"        <h3>EP{ep.number:02d}: {_html_escape(ep.title or '')}</h3>",
+            "        <ol>",
+        ])
+        for scene in ep.scenes:
+            lines.extend([
+                f'          <li data-scene-id="{_html_escape(scene.scene_id, quote=True)}">',
+                "            <h4>" + _html_escape(scene.scene_id or "scene") + "</h4>",
+                "            <p class=\"description\">"
+                + _html_escape(scene.description or "")
+                + "</p>",
+            ])
+            if scene.dialogue:
+                lines.append(
+                    "            <pre class=\"dialogue\">"
+                    + _html_escape(scene.dialogue)
+                    + "</pre>"
+                )
+            if scene.visual_prompt:
+                lines.append(
+                    "            <pre class=\"visual-prompt\">"
+                    + _html_escape(scene.visual_prompt)
+                    + "</pre>"
+                )
+            lines.append("          </li>")
+        lines.extend(["        </ol>", "      </section>"])
+    lines.extend(["    </section>", "  </article>", "</body>", "</html>"])
+    return "\n".join(lines) + "\n"
+
+
+def _write_source_assets(series: DramaSeries, series_root: Path) -> None:
+    source_text = _source_text_for_series(series)
+    if not source_text and not series.episodes:
+        return
+    source_dir = series_root / "source"
+    source_dir.mkdir(parents=True, exist_ok=True)
+    if source_text:
+        (source_dir / "input_series.txt").write_text(source_text + "\n", encoding="utf-8")
+    source_html = str(series.metadata.get("source_script_html") or "").strip()
+    if not source_html:
+        source_html = _render_llm_input_html(series, source_text)
+    (source_dir / "input_series.html").write_text(source_html, encoding="utf-8")
+    llm_html = str(series.metadata.get("llm_import_html") or "").strip()
+    if not llm_html:
+        llm_html = _render_llm_input_html(series, source_text)
+    (source_dir / "llm_input.html").write_text(
+        llm_html,
+        encoding="utf-8",
+    )
+
+
 _SERIES_STAGE_WORK: dict[str, set[str]] = {
     "after_design": {"chars", "scenes", "md"},
     "after_refresh": {"chars", "scenes", "md"},
@@ -639,6 +813,7 @@ def build_series_view(
     """
     series_root = _series_root_for(series, deliverables_dir)
     series_root.mkdir(parents=True, exist_ok=True)
+    _write_series_marker(series, series_root)
     todo = work if work is not None else {"chars", "scenes", "md"}
     if "chars" in todo:
         _update_series_characters_dir(series, series_root / "characters")
@@ -646,6 +821,7 @@ def build_series_view(
         _update_series_scenes_dir(series, series_root / "scenes")
     if "md" in todo:
         _write_series_md(series, series_root)
+        _write_source_assets(series, series_root)
     return series_root
 
 
@@ -771,15 +947,24 @@ def _update_final_dir(
     episode: Episode,
     final_dir: Path,
     series_dir: Path,
+    projects_dir: Path | None = None,
 ) -> None:
     """Symlink the composed episode video into ``final/``."""
     ep_prefix = f"ep{episode.number:02d}"
-    video_src = series_dir / f"{ep_prefix}_video"
-    if video_src.is_dir():
-        for f in video_src.iterdir():
-            if "final" in f.name.lower() or "composed" in f.name.lower():
-                final_dir.mkdir(parents=True, exist_ok=True)
-                _safe_symlink(f, final_dir / f.name, keep_versions=True)
+    candidate_dirs = [series_dir / f"{ep_prefix}_video"]
+    if projects_dir is not None and episode.project_id:
+        candidate_dirs.append(projects_dir / episode.project_id)
+
+    for video_src in candidate_dirs:
+        if video_src.is_dir():
+            for f in sorted(video_src.iterdir()):
+                if not f.is_file():
+                    continue
+                if video_src != candidate_dirs[0] and f.suffix.lower() != ".mp4":
+                    continue
+                if "final" in f.name.lower() or "composed" in f.name.lower():
+                    final_dir.mkdir(parents=True, exist_ok=True)
+                    _safe_symlink(f, final_dir / f.name, keep_versions=True)
 
 
 def _write_duration_analysis(lines: list[str], scenes: list[DramaScene]) -> None:
@@ -1016,6 +1201,8 @@ def _safe_symlink(src: Path, dst: Path, *, keep_versions: bool = False) -> None:
     """
     try:
         if dst.exists() or dst.is_symlink():
+            if dst.is_symlink() and dst.resolve() == src.resolve():
+                return
             if keep_versions:
                 _version_existing(dst)
             else:
@@ -1621,7 +1808,7 @@ class CheckpointController:
             self._update_audit(review_dir / "audit", series_dir)
 
         if "final" in active_subdirs:
-            self._update_final(review_dir / "final", series_dir)
+            self._update_final(review_dir / "final", series_dir, projects_dir)
 
         # Storyboard: always regenerated (cheap text, reflects latest state)
         self._update_storyboard(review_dir)
@@ -1664,8 +1851,10 @@ class CheckpointController:
     def _update_audit(self, audit_dir: Path, series_dir: Path) -> None:
         _update_audit_dir(self.episode, audit_dir, series_dir)
 
-    def _update_final(self, final_dir: Path, series_dir: Path) -> None:
-        _update_final_dir(self.episode, final_dir, series_dir)
+    def _update_final(
+        self, final_dir: Path, series_dir: Path, projects_dir: Path | None = None
+    ) -> None:
+        _update_final_dir(self.episode, final_dir, series_dir, projects_dir)
 
     # ------------------------------------------------------------------
     # Storyboard document — delegates to module-level functions

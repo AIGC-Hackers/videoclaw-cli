@@ -22,7 +22,7 @@ _COMMANDS = {
     ],
     "drama": [
         {"command": "claw drama new", "description": "Create series from concept"},
-        {"command": "claw drama import", "description": "Import complete script (.docx/.txt)"},
+        {"command": "claw drama import", "description": "Import complete script (.docx/.txt/.pdf)"},
         {"command": "claw drama list", "description": "List all drama series"},
         {"command": "claw drama show <id>", "description": "Show series details"},
         {"command": "claw drama plan <id>", "description": "Plan episodes via LLM"},
@@ -60,7 +60,7 @@ _WORKFLOWS = {
     "western_tiktok_drama": {
         "description": "Western photorealistic TikTok short drama (Seedance 2.0, 9:16, en)",
         "steps": [
-            "claw drama import script.docx --lang en --title 'My Drama'",
+            "claw drama import script.pdf --lang en --title 'My Drama'",
             "claw drama design-characters <series_id>",
             "claw drama design-scenes <series_id>",
             "claw drama assign-voices <series_id>",
