@@ -191,7 +191,7 @@ Status as of M002 HEAD (2026-05-06):
       missing, 1 = other runtime failures, 0 = healthy). The CLI
       uses 0/1/2/3; code 4 reserved for `install.sh` policy refusals.
 - [x] Wheel builds clean (no leakage of tests / projects / models_cache /
-      .gsd / mcp-shim / packaging / docs/deliverables).
+      mcp-shim / packaging / docs/deliverables).
 - [x] Wheel bundles `skills/` as `videoclaw/_skills/` via hatch
       `force-include`; `claw setup` resolves them via
       `importlib.resources` at runtime.

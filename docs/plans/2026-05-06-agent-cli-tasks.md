@@ -386,7 +386,7 @@ gh release list | grep v0.1.0     # 期望无（dry-run 不创建）
 **关联**：G7
 
 **Acceptance**：
-- `.gsd-id` `mcp-shim/uv.lock` 之一：要么进 .gitignore（如属本地 / lockfile 政策不追踪），要么 `git add` 显式追踪
+- `mcp-shim/uv.lock`：要么进 .gitignore（如属本地 / lockfile 政策不追踪），要么 `git add` 显式追踪
 - `git status --porcelain` 干净
 
 **Files**：`.gitignore`（最可能） 或 `mcp-shim/uv.lock`（追踪决定）

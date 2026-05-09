@@ -171,7 +171,7 @@ videoclaw/
 - F5.2 README / docs 中明确 manifest 是 **informational**（skills 是首选发现路径，manifest 给走 manifest-driven 路径的 orchestrator 用）
 
 ### F6 — 三渠道构建可重现（P0）
-- F6.1 wheel 不泄漏 `tests/` `projects/` `models_cache/` `.gsd/` `mcp-shim/` `packaging/` `docs/deliverables/` `skills/`
+- F6.1 wheel 不泄漏 `tests/` `projects/` `models_cache/` `mcp-shim/` `packaging/` `docs/deliverables/` `skills/`
   - **新增**：wheel **必须**包含 `skills/` 作为 package data，否则 `claw setup` 找不到内容；具体打包路径在 audit 中确定
 - F6.2 PyInstaller 单文件构建产出可执行 `dist/claw`，excludes 包含 torch/diffusers/transformers/fastapi/uvicorn
   - **新增**：PyInstaller 也必须 bundle `skills/` 作为 data

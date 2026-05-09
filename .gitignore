@@ -49,9 +49,6 @@ docs/plans/*
 .devtool/
 
 # 本地开发工具产物（不入库）
-.gsd/*
-!.gsd/PREFERENCES.md
-.gsd-id
 .bg-shell/
 .mcp.json
 .claude/

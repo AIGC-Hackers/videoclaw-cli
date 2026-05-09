@@ -301,7 +301,6 @@ uv run python -m videoclaw.cli drama plan --help      # 不经 claw 脚本
 - **视频生成只对前 5 个 shots 生成**（作为测试）
 - 每次新 Session 拉起前，创建一个终端（如无权限，提醒用户手动操作），总结归纳和审计结果
 - 使用 `/ralph-loop` 完成和完善西方仿真人短剧的系统编排和调优
-- 在 videoclaw，将实现委托给 `gsd --print` 非交互模式；Claude 只负责编排
 
 ## Git 规则
 

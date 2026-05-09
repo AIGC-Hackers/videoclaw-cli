@@ -2,7 +2,7 @@
 # sdist publishing. NOT applied to wheel builds: the in-tree pyproject.toml
 # already uses `[tool.hatch.build.targets.wheel] packages = ["src/videoclaw"]`
 # which whitelists the wheel cleanly (verified: no tests/, deliverables/,
-# projects/, models_cache/, .gsd/, mcp-shim/, packaging/ in the produced
+# projects/, models_cache/, mcp-shim/, packaging/ in the produced
 # wheel).
 #
 # When a future milestone adds `uv build --sdist` to dist-verify.sh, this
@@ -16,7 +16,6 @@
 #   - projects/              (runtime project data)
 #   - models_cache/          (downloaded checkpoints)
 #   - examples/              (example scripts referenced by docs)
-#   - .gsd/                  (gsd workflow database, dev-only)
 #   - mcp-shim/              (sibling distributable, ships its own wheel)
 #   - packaging/             (this packaging recipe — meta-only)
 #
@@ -35,7 +34,6 @@ exclude = [
     "projects/",
     "models_cache/",
     "examples/",
-    ".gsd/",
     "mcp-shim/",
     "packaging/",
     ".bg-shell/",

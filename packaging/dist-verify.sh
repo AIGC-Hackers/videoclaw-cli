@@ -55,7 +55,7 @@ if [ "$STAGE_WHEEL" = "1" ]; then
     step "wheel — uv build"
     # Wheel is already clean: pyproject.toml's [tool.hatch.build.targets.wheel]
     # packages = ["src/videoclaw"] whitelist excludes tests/, docs/deliverables/,
-    # projects/, models_cache/, .gsd/, mcp-shim/, packaging/ from the wheel.
+    # projects/, models_cache/, mcp-shim/, packaging/ from the wheel.
     # packaging/pyproject.overlay.toml stays available for future sdist builds
     # (see its docstring) but is not applied here — wheel-only ships.
     uv build --wheel --out-dir "$dist_dir"

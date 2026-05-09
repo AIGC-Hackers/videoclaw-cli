@@ -219,7 +219,7 @@ dfb2446 feat(install): suggest 'claw setup' before API-key wizard (M002 T9)
 6942546 docs(readme): restructure to google/agents-cli template (M002 T10)
 03f9ce2 feat(skills): scaffold 5 videoclaw-* skills + skills-validate.py (M002 T1)
 828356f ci(release): add explicit dry_run input on workflow_dispatch
-ca710a6 chore(gitignore): track agent-cli M002 spec/audit/tasks + ignore .gsd-id and mcp-shim/uv.lock
+ca710a6 chore(gitignore): track agent-cli M002 spec/audit/tasks + ignore mcp-shim/uv.lock
 ```
 
 (plus the M001 baseline already merged on `feat/agent-cli-toolkit`)
