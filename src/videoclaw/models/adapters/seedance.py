@@ -141,6 +141,25 @@ _HTTP_TIMEOUT_S = 120.0
 _PRIVACY_ERROR_MARKER = "PrivacyInformation"
 
 
+def _poll_timeout_s() -> float:
+    raw = os.getenv("VIDEOCLAW_VIDEO_POLL_TIMEOUT_S")
+    if not raw:
+        return _POLL_TIMEOUT_S
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        logger.warning(
+            "Invalid VIDEOCLAW_VIDEO_POLL_TIMEOUT_S=%r; using default %.0fs",
+            raw,
+            _POLL_TIMEOUT_S,
+        )
+        return _POLL_TIMEOUT_S
+
+
+def _is_http_url(url: str) -> bool:
+    return url.startswith("http://") or url.startswith("https://")
+
+
 def _coalesce_text_content(content: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Return content with at most one text entry.
 
@@ -580,7 +599,8 @@ class SeedanceVideoAdapter:
         elapsed = 0.0
         attempt = 0
         video_url: str | None = None
-        while elapsed < _POLL_TIMEOUT_S:
+        poll_timeout = _poll_timeout_s()
+        while elapsed < poll_timeout:
             interval = min(
                 _POLL_BACKOFF_BASE * (_POLL_BACKOFF_FACTOR ** attempt),
                 _POLL_MAX_INTERVAL,
@@ -598,11 +618,11 @@ class SeedanceVideoAdapter:
                     f"Seedance generation failed (task={task_id}): {error}"
                 )
 
-            progress = min(0.1 + (elapsed / _POLL_TIMEOUT_S) * 0.8, 0.9)
+            progress = min(0.1 + (elapsed / poll_timeout) * 0.8, 0.9)
             yield ProgressEvent(progress=progress, stage="processing")
         else:
             raise TimeoutError(
-                f"Seedance generation timed out after {_POLL_TIMEOUT_S}s"
+                f"Seedance generation timed out after {poll_timeout}s"
             )
 
         yield ProgressEvent(progress=0.95, stage="downloading")
@@ -766,7 +786,7 @@ class SeedanceVideoAdapter:
                 url = img_info.get("url", "")
                 role = img_info.get("role", "reference_image")
 
-                if not url.startswith("http"):
+                if not _is_http_url(url):
                     # Might be a local path — try converting to data URI
                     data_uri = _image_to_data_uri(url)
                     if data_uri:
@@ -830,6 +850,10 @@ class SeedanceVideoAdapter:
         if ref_videos:
             for vid_info in ref_videos:
                 url = vid_info.get("url", "")
+                if not _is_http_url(url):
+                    if url:
+                        logger.warning("[seedance] Skipping non-HTTP reference_video URL: %s", url)
+                    continue
                 if url:
                     content.append({
                         "type": "video_url",
@@ -848,6 +872,13 @@ class SeedanceVideoAdapter:
             else:
                 for aud_info in ref_audios:
                     url = aud_info.get("url", "")
+                    if not _is_http_url(url):
+                        if url:
+                            logger.warning(
+                                "[seedance] Skipping non-HTTP reference_audio URL: %s",
+                                url,
+                            )
+                        continue
                     if url:
                         content.append({
                             "type": "audio_url",
@@ -1047,7 +1078,8 @@ class SeedanceVideoAdapter:
         """Poll task status until completion, returning the video URL."""
         elapsed = 0.0
         attempt = 0
-        while elapsed < _POLL_TIMEOUT_S:
+        poll_timeout = _poll_timeout_s()
+        while elapsed < poll_timeout:
             interval = min(
                 _POLL_BACKOFF_BASE * (_POLL_BACKOFF_FACTOR ** attempt),
                 _POLL_MAX_INTERVAL,
@@ -1082,7 +1114,7 @@ class SeedanceVideoAdapter:
             )
 
         raise TimeoutError(
-            f"Seedance generation timed out after {_POLL_TIMEOUT_S}s "
+            f"Seedance generation timed out after {poll_timeout}s "
             f"(task={task_id})"
         )
 
