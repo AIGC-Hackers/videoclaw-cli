@@ -998,6 +998,7 @@ class DramaRunner:
 
         dag, state = build_episode_dag(episode, series, max_shots=max_shots)
         await self.state_mgr.save_async(state)
+        await self.drama_mgr.save_async(series)
 
         tracker = CostTracker(
             project_id=state.project_id,
@@ -1312,6 +1313,17 @@ class DramaRunner:
             state = await executor.run()
         finally:
             unsubscribe()
+
+        if state.status.value == "completed":
+            episode.status = EpisodeStatus.COMPLETED
+            episode.cost = state.cost_total
+        else:
+            episode.status = EpisodeStatus.FAILED
+
+        if all(ep.status == EpisodeStatus.COMPLETED for ep in series.episodes):
+            series.status = DramaStatus.COMPLETED
+        elif any(ep.status == EpisodeStatus.FAILED for ep in series.episodes):
+            series.status = DramaStatus.FAILED
 
         await self.drama_mgr.save_async(series)
 
