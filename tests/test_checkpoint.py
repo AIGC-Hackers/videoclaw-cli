@@ -15,6 +15,7 @@ from videoclaw.drama.checkpoint import (
     CheckpointStage,
     _scene_slug,
     _slugify,
+    generate_storyboard_html,
     generate_storyboard_md,
     resolve_skip_flags,
     restore_from_checkpoint,
@@ -820,6 +821,74 @@ async def test_generate_storyboard_md_standalone(tmp_path: Path):
     assert "EP01 分镜表" in content
     assert "Jake" in content
     assert "6" in content  # duration
+
+
+def test_generate_storyboard_html_standalone(tmp_path: Path):
+    """storyboard.html should provide a readable table and transcript."""
+    from videoclaw.drama.models import DramaScene, DramaSeries, Episode, ShotScale, ShotType
+
+    series = DramaSeries(
+        series_id="html_storyboard",
+        title="HTML Storyboard",
+        genre="drama",
+        synopsis="Test HTML generation.",
+        aspect_ratio="9:16",
+        model_id="seedance-2.0",
+    )
+    episode = Episode(
+        episode_id="ep1",
+        number=1,
+        title="Pilot",
+        scenes=[
+            DramaScene(
+                scene_id="ep01_s01",
+                description="Ivy confronts Colton.",
+                visual_prompt="Cafe interior, Ivy confronts Colton, warm window light",
+                duration_seconds=6.0,
+                dialogue="I didn't expect you.",
+                speaking_character="Ivy",
+                shot_scale=ShotScale.MEDIUM,
+                shot_type=ShotType.ACTION,
+                characters_present=["Ivy", "Colton"],
+                emotion="tense",
+                act_number="act_1",
+                scene_group="A",
+            )
+        ],
+    )
+
+    html_path = generate_storyboard_html(series, episode, review_dir=tmp_path)
+
+    html = html_path.read_text(encoding="utf-8")
+    assert html_path.name == "storyboard.html"
+    assert '<main class="storyboard">' in html
+    assert "HTML Storyboard" in html
+    assert "Ivy confronts Colton." in html
+    assert "I didn&#x27;t expect you." in html
+    assert "medium" in html
+
+
+@pytest.mark.asyncio
+async def test_build_review_dir_writes_storyboard_html(tmp_path: Path):
+    from videoclaw.drama.checkpoint import build_review_dir
+    from videoclaw.drama.models import DramaScene, DramaSeries, Episode
+
+    series = DramaSeries(series_id="html_review", title="HTML Review")
+    episode = Episode(
+        number=1,
+        title="Pilot",
+        scenes=[DramaScene(scene_id="ep01_s01", description="Opening shot")],
+    )
+
+    review_dir = build_review_dir(
+        series,
+        episode,
+        deliverables_dir=tmp_path / "deliverables",
+        projects_dir=tmp_path / "projects",
+    )
+
+    assert (review_dir / "storyboard.md").exists()
+    assert (review_dir / "storyboard.html").exists()
 
 
 # ---------------------------------------------------------------------------

@@ -316,6 +316,177 @@ def generate_storyboard_md(
     return p
 
 
+def generate_storyboard_html(
+    series: DramaSeries,
+    episode: Episode,
+    review_dir: Path,
+) -> Path:
+    """Generate a human-readable ``storyboard.html`` review surface."""
+    review_dir.mkdir(parents=True, exist_ok=True)
+    scenes = episode.scenes
+    title = f"{series.title} - EP{episode.number:02d} Storyboard"
+    total_duration = sum(s.duration_seconds for s in scenes)
+
+    rows: list[str] = []
+    transcript: list[str] = []
+    for idx, scene in enumerate(scenes):
+        slug = _scene_slug(idx, scene.description)
+        scale_raw = scene.shot_scale.value if scene.shot_scale else ""
+        scale_label = _SCALE_LABELS.get(scale_raw, scale_raw or "-")
+        shot_type = scene.shot_type.value if scene.shot_type else "-"
+        characters = ", ".join(scene.characters_present) or "-"
+        video_link = _storyboard_asset_link(review_dir, "videos", slug)
+        audio_link = _storyboard_asset_link(review_dir, "audio", slug)
+        rows.append(
+            "          <tr>"
+            f"<td><code>{_html_escape(scene.scene_id or slug)}</code></td>"
+            f"<td>{_html_escape(scene.description or '')}</td>"
+            f"<td>{_html_escape(scale_label)}<br><small>{_html_escape(scale_raw or '-')}</small></td>"
+            f"<td>{_html_escape(shot_type)}</td>"
+            f"<td>{_html_escape(characters)}</td>"
+            f"<td>{_html_escape(scene.emotion or '-')}</td>"
+            f"<td>{_html_escape(f'{scene.duration_seconds:.1f}s')}</td>"
+            f"<td>{video_link}{audio_link}</td>"
+            "</tr>"
+        )
+        if scene.dialogue:
+            speaker = scene.speaking_character or "?"
+            transcript.append(
+                f"        <p><strong>{_html_escape(speaker)}:</strong> "
+                f"{_html_escape(scene.dialogue)}</p>"
+            )
+        if scene.narration:
+            transcript.append(
+                "        <p><strong>Narration:</strong> "
+                f"{_html_escape(scene.narration)}</p>"
+            )
+
+    body_rows = "\n".join(rows) if rows else (
+        '          <tr><td colspan="8">No storyboard scenes yet.</td></tr>'
+    )
+    transcript_html = "\n".join(transcript) if transcript else (
+        "        <p>No dialogue or narration.</p>"
+    )
+
+    html = f"""<!doctype html>
+<html lang="{_html_escape(series.language or 'zh', quote=True)}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{_html_escape(title)}</title>
+  <style>
+    :root {{
+      color-scheme: light;
+      --bg: #f7f7f3;
+      --surface: #ffffff;
+      --text: #1f2933;
+      --muted: #5f6b76;
+      --border: #d8ddd7;
+      --accent: #0f766e;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }}
+    .storyboard {{
+      width: min(1180px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+    }}
+    header {{ margin-bottom: 20px; }}
+    h1 {{ margin: 0 0 8px; font-size: 28px; line-height: 1.2; }}
+    h2 {{ margin: 28px 0 10px; font-size: 18px; }}
+    .meta {{ color: var(--muted); margin: 0; }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--surface);
+      border: 1px solid var(--border);
+    }}
+    th, td {{
+      border-bottom: 1px solid var(--border);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }}
+    th {{ background: #eef3ef; font-weight: 650; }}
+    code {{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }}
+    small, .muted {{ color: var(--muted); }}
+    .asset-link {{
+      display: block;
+      color: var(--accent);
+      text-decoration: none;
+      margin-bottom: 4px;
+    }}
+    .transcript {{
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 12px 16px;
+    }}
+    .transcript p {{ margin: 0 0 8px; }}
+    @media (max-width: 760px) {{
+      .storyboard {{ width: min(100vw - 20px, 1180px); padding-top: 16px; }}
+      table {{ font-size: 13px; }}
+      th, td {{ padding: 8px; }}
+    }}
+  </style>
+</head>
+<body>
+  <main class="storyboard">
+    <header>
+      <h1>{_html_escape(series.title)} - EP{episode.number:02d} { _html_escape(episode.title or '')}</h1>
+      <p class="meta">{len(scenes)} scenes | {total_duration:.0f}s | {_html_escape(series.aspect_ratio)} | {_html_escape(series.model_id)}</p>
+    </header>
+    <section aria-labelledby="scene-table-title">
+      <h2 id="scene-table-title">Scene Table</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Scene</th>
+            <th>Description</th>
+            <th>Scale</th>
+            <th>Type</th>
+            <th>Characters</th>
+            <th>Emotion</th>
+            <th>Duration</th>
+            <th>Assets</th>
+          </tr>
+        </thead>
+        <tbody>
+{body_rows}
+        </tbody>
+      </table>
+    </section>
+    <section aria-labelledby="transcript-title">
+      <h2 id="transcript-title">Transcript</h2>
+      <div class="transcript">
+{transcript_html}
+      </div>
+    </section>
+  </main>
+</body>
+</html>
+"""
+    p = review_dir / "storyboard.html"
+    p.write_text(html, encoding="utf-8")
+    return p
+
+
+def _storyboard_asset_link(review_dir: Path, subdir: str, slug: str) -> str:
+    asset_dir = review_dir / subdir
+    if not asset_dir.is_dir():
+        return ""
+    match = next((p for p in sorted(asset_dir.iterdir()) if p.name.startswith(slug)), None)
+    if match is None:
+        return ""
+    label = "video" if subdir == "videos" else subdir.rstrip("s")
+    href = f"{subdir}/{_html_escape(match.name, quote=True)}"
+    return f'<a class="asset-link" href="{href}">{_html_escape(label)}</a>'
+
+
 def build_review_dir(
     series: DramaSeries,
     episode: Episode,
@@ -377,6 +548,7 @@ def build_review_dir(
     _update_final_dir(episode, review_dir / "final", series_dir, projects_dir)
 
     generate_storyboard_md(series, episode, review_dir=review_dir)
+    generate_storyboard_html(series, episode, review_dir=review_dir)
     return review_dir
 
 
@@ -1861,8 +2033,9 @@ class CheckpointController:
     # ------------------------------------------------------------------
 
     def _update_storyboard(self, review_dir: Path) -> None:
-        """Delegate to :func:`generate_storyboard_md`."""
+        """Delegate to storyboard document generators."""
         generate_storyboard_md(self.series, self.episode, review_dir=review_dir)
+        generate_storyboard_html(self.series, self.episode, review_dir=review_dir)
 
     @staticmethod
     def _collect_all_assets(review_dir: Path) -> dict[str, str]:
