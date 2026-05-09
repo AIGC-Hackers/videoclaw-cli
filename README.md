@@ -136,7 +136,7 @@ Or run the CLI directly without an agent — every command supports `--json`:
 ```bash
 claw --json doctor                                      # health check
 claw drama new "<synopsis>" --title "<title>" --lang zh # LLM-authored
-claw drama import script.docx --title "<title>"         # locked-script mode
+claw drama import script.pdf --title "<title>"          # locked-script mode (.pdf/.docx/.txt)
 claw drama run <series_id> --max-shots 3                # generate first 3 shots
 ```
 
@@ -178,8 +178,8 @@ claw drama run <series_id> --max-shots 3                # generate first 3 shots
 # Top-level
 claw setup [--dry-run] [--uninstall] [--copy] [--no-npx] [--agent <name>]
 claw version
-claw doctor [--json]
-claw info [--json]
+claw [--json] doctor
+claw [--json] info
 claw image <prompt> [--provider evolink] [--model gpt-image-2] [--resolution 1K] [--quality medium]
 claw generate <prompt>            # single-shot full pipeline
 claw stage-* …                    # 7 staged-pipeline commands
@@ -275,7 +275,7 @@ all of this.**
 Complete production pipeline for TikTok-format Western AI short dramas — from script import to published episode:
 
 ```bash
-claw drama import script.docx --title "Satan in a Suit" --language en
+claw drama import script.pdf --title "Satan in a Suit" --lang en
 claw drama design-characters <series_id>     # turnaround sheets
 claw drama preview-prompts <series_id>       # preview before spending credits
 claw drama pipeline <series_id> --episode 1  # design → run → audit → fix → export

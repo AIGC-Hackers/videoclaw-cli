@@ -29,7 +29,7 @@ metadata:
 
 ```bash
 claw model list           # show registered adapters + health
-claw model list --json    # machine-readable
+claw --json model list    # machine-readable
 claw model pull <model>   # download / prepare a local model (offline)
 ```
 
@@ -70,13 +70,13 @@ unconfigured.
 Pass the chosen id to **either**:
 
 - `claw drama new … --model <id>` (set per-series default at creation)
-- `claw drama run <series_id> --model <id>` (override at run time)
+- `claw drama import … --model <id>` (set per-series default for imported scripts)
 - `VIDEOCLAW_DEFAULT_VIDEO_MODEL=<id>` (env, applies to all new
   runs)
 
 ## Required environment variables
 
-Map of adapter → key (see `claw doctor --json` for status):
+Map of adapter → key (see `claw --json doctor` for status):
 
 | Adapter | Env vars |
 |---|---|

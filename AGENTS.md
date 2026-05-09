@@ -312,7 +312,7 @@ result = asyncio.run(call_tool("list_drama_series", {}))
 docker build -t videoclaw-cli -f packaging/Dockerfile .
 docker run --rm \
   -v $HOME/.config/videoclaw:/home/claw/.config/videoclaw \
-  videoclaw-cli drama list --json
+  videoclaw-cli --json drama list
 ```
 
 ### As a no-Python binary
@@ -321,7 +321,7 @@ docker run --rm \
 uv pip install pyinstaller
 bash packaging/dist-verify.sh   # builds wheel + binary + docker
 ./dist/claw version
-./dist/claw drama list --json
+./dist/claw --json drama list
 ```
 
 ## External tests

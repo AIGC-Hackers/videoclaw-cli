@@ -26,7 +26,7 @@ metadata:
 
 > **STOP — Do NOT generate prompts or videos yet.** If no series exists,
 > start with `/videoclaw-drama-setup` to create one via `claw drama new`
-> or `claw drama import`. Run `claw drama list --json` to check first.
+> or `claw drama import`. Run `claw --json drama list` to check first.
 > Skipping setup leads to orphaned assets, broken checkpoint references,
 > and silent re-billing.
 
@@ -72,7 +72,7 @@ Pick one of three entry modes:
 | User has | Command | Mode |
 |---|---|---|
 | A synopsis only | `claw drama new "<synopsis>" --title "<t>" --lang zh --episodes 5` | LLM authors script (creative) |
-| A finalized .docx / .txt script | `claw drama import script.docx --title "<t>" --lang en` | Locked, decomposition only |
+| A finalized .pdf / .docx / .txt script | `claw drama import script.pdf --title "<t>" --lang en` | Locked, decomposition only |
 | Existing series, want to re-plan | `claw drama script <series_id> --episode N` | Re-author specific episode |
 
 After setup, capture the `series_id` from the JSON envelope — every

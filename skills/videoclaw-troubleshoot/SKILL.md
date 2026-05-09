@@ -184,6 +184,22 @@ If the key is valid but the account lacks `gpt-image-2` access, ask
 the provider to enable it or temporarily use explicit BytePlus image
 fallback: `--provider byteplus --model seedream-5.0-lite`.
 
+### `No extractable text found in PDF` — scanned/OCR-less import
+
+**Symptom**: `claw --json drama import file.pdf ...` exits 1 and the
+envelope error says no extractable text was found.
+
+**Cause**: VideoClaw supports text-based PDFs, but not scanned
+image-only PDFs. The PDF must contain selectable text for accurate
+script decomposition.
+
+**Fix**: OCR the PDF or export it to `.txt` / `.docx`, then import
+the text-based result:
+
+```bash
+claw --json drama import script.txt --title "<title>" --lang zh
+```
+
 ### EdgeTTS voice fallback warning
 
 **Symptom**: `drama assign-voices` succeeds but log says "voice_id
@@ -219,7 +235,7 @@ uv run claw version
 **Symptom**:
 
 ```bash
-$ claw setup --json
+$ claw --json setup
 {"ok": true, "agents_detected": [], ...}
 ```
 
