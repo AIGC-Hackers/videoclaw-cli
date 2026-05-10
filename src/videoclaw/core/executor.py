@@ -67,14 +67,21 @@ def _is_seedance_model(model_id: Any) -> bool:
     return str(model_id or "").startswith("seedance")
 
 
+def uses_native_audio_generation(model_id: Any) -> bool:
+    """Return True for video models whose clips already contain dialogue/SFX."""
+    return str(model_id or "") == "seedance-2.0"
+
+
 def _uses_seedance_cogenerated_audio(state: ProjectState) -> bool:
-    """Return True when TTS voice tracks should not be overlaid in compose."""
+    """Return True when external audio/subtitle overlays should be disabled."""
     if state.metadata.get("overlay_tts_audio") is True:
         return False
+    if state.metadata.get("generate_audio") is False:
+        return False
     model_id = state.metadata.get("model_id")
-    if _is_seedance_model(model_id):
+    if uses_native_audio_generation(model_id):
         return True
-    return any(_is_seedance_model(shot.model_id) for shot in state.storyboard)
+    return any(uses_native_audio_generation(shot.model_id) for shot in state.storyboard)
 
 
 class DAGExecutor:
@@ -1272,13 +1279,19 @@ class DAGExecutor:
 
         logger.info("[compose] Composed %d clips -> %s", len(video_paths), composed_path)
 
+        native_audio = _uses_seedance_cogenerated_audio(state)
+
         # 3. Read subtitles from upstream subtitle_gen node
         #    When alignment data is available, re-generate subtitles with
         #    actual durations so timing matches the composed video.
         subtitle_path: Path | None = None
         raw_sub = state.assets.get("subtitles")
-        if raw_sub and Path(raw_sub).exists():
+        if raw_sub and Path(raw_sub).exists() and not native_audio:
             subtitle_path = Path(raw_sub)
+        elif raw_sub and native_audio:
+            logger.info(
+                "[compose] Skipping subtitle overlay for native Seedance audio/video"
+            )
 
         if subtitle_path and alignment and not alignment.is_aligned:
             # Re-generate subtitles with actual durations
@@ -1326,9 +1339,8 @@ class DAGExecutor:
         # Build scene_id → cumulative actual start time map for audio re-sync
         actual_start_map: dict[str, float] = _build_actual_start_map(alignment) if alignment else {}
 
-        skip_voice_overlay = _uses_seedance_cogenerated_audio(state)
         raw_manifest = state.assets.get("audio_manifest")
-        if raw_manifest and not skip_voice_overlay:
+        if raw_manifest and not native_audio:
             from videoclaw.drama.models import LineType
             manifest_data = _json.loads(raw_manifest)
             for seg in manifest_data.get("segments", []):
@@ -1350,7 +1362,7 @@ class DAGExecutor:
                         volume=vol,
                         start_time=start_time,
                     ))
-        elif not skip_voice_overlay:
+        elif not native_audio:
             tts_data = state.assets.get("tts_audio")
             if tts_data:
                 for entry in _json.loads(tts_data):
@@ -1368,12 +1380,16 @@ class DAGExecutor:
 
         # Add music track if available
         music_path_str = state.assets.get("music", "")
-        if music_path_str and Path(music_path_str).exists():
+        if music_path_str and Path(music_path_str).exists() and not native_audio:
             audio_tracks.append(AudioTrack(
                 path=Path(music_path_str),
                 type=AudioType.MUSIC,
                 volume=0.3,  # BGM lower than dialogue
             ))
+        elif music_path_str and native_audio:
+            logger.info(
+                "[compose] Skipping music overlay for native Seedance audio/video"
+            )
 
         # 5. Final render: audio mix + subtitle burn
         output_path = project_dir / "composed_final.mp4"

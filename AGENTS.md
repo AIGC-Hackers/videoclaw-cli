@@ -213,6 +213,11 @@ the videoclaw skill bundle automatically.
 Any agent with a Bash tool can also call `claw` directly — see the
 "How code agents use videoclaw" section below.
 
+For the default `seedance-2.0` drama model, VideoClaw treats the model's
+native dialogue/SFX/subtitle output as authoritative. The DAG skips
+downstream TTS, BGM, and subtitle-overlay nodes so compose only assembles
+the generated clips instead of re-mixing audio over them.
+
 ## How code agents use videoclaw
 
 ### CLI + Bash tool (universal)

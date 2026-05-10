@@ -170,6 +170,24 @@ class TestEnrichedDAG:
         assert "subtitle_gen" in compose_node.depends_on
         assert "music" in compose_node.depends_on
 
+    def test_seedance_compose_depends_only_on_video_nodes(self):
+        series = DramaSeries(title="Test", model_id="seedance-2.0")
+        ep = Episode(
+            number=1,
+            scenes=[
+                DramaScene(scene_id="s01", dialogue="台词", duration_seconds=5.0),
+                DramaScene(scene_id="s02", narration="旁白", duration_seconds=5.0),
+            ],
+        )
+
+        dag, _ = build_episode_dag(ep, series)
+        compose_node = dag.nodes["compose"]
+
+        assert "subtitle_gen" not in dag.nodes
+        assert "music" not in dag.nodes
+        assert not any(n.task_type == TaskType.PER_SCENE_TTS for n in dag.nodes.values())
+        assert compose_node.depends_on == ["video_s01", "video_s02"]
+
     def test_video_node_has_aspect_ratio(self):
         series = DramaSeries(title="Test", model_id="mock", aspect_ratio="9:16")
         ep = Episode(
@@ -709,7 +727,7 @@ class TestComposeHandler:
         mock_instance.render_final.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_compose_skips_tts_overlay_for_seedance_default(self, tmp_path):
+    async def test_compose_skips_external_overlays_for_seedance_default(self, tmp_path):
         sm = StateManager(projects_dir=tmp_path)
         project_dir = tmp_path / "seedance_project"
         shots_dir = project_dir / "shots"
@@ -718,9 +736,11 @@ class TestComposeHandler:
         audio_dir.mkdir(parents=True)
         video_path = shots_dir / "s01.mp4"
         audio_path = audio_dir / "s01_dialogue.mp3"
+        music_path = audio_dir / "bgm.aac"
         subtitle_path = project_dir / "subtitles.ass"
         video_path.write_bytes(b"video")
         audio_path.write_bytes(b"dialogue audio")
+        music_path.write_bytes(b"music")
         subtitle_path.write_text("[Script Info]\nTitle: Test\n", encoding="utf-8")
 
         state = ProjectState(
@@ -731,7 +751,15 @@ class TestComposeHandler:
             ],
             metadata={"model_id": "seedance-2.0"},
             assets={
+                "audio_manifest": json.dumps({
+                    "segments": [{
+                        "scene_id": "s01",
+                        "audio_path": str(audio_path),
+                        "line_type": "dialogue",
+                    }],
+                }),
                 "tts_audio": json.dumps([{"path": str(audio_path), "type": "dialogue"}]),
+                "music": str(music_path),
                 "subtitles": str(subtitle_path),
             },
         )
@@ -748,6 +776,7 @@ class TestComposeHandler:
         dag = DAG()
         dag.add_node(node)
         executor = DAGExecutor(dag=dag, state=state, state_manager=sm)
+        executor._config.projects_dir = tmp_path
 
         from videoclaw.generation.compose import AlignedClip, AlignmentReport
 
@@ -759,17 +788,33 @@ class TestComposeHandler:
         )
         mock_validation = {"ok": True, "expected": 5.0, "actual": 5.0, "drift": 0.0}
 
-        with patch("videoclaw.generation.compose.align_clips", new_callable=AsyncMock, return_value=mock_report), \
-             patch("videoclaw.generation.compose.validate_composed_duration", new_callable=AsyncMock, return_value=mock_validation), \
-             patch("videoclaw.generation.compose.VideoComposer") as MockComposer:
-            mock_instance = MockComposer.return_value
-            mock_instance.compose = AsyncMock(return_value=project_dir / "composed.mp4")
+        with (
+            patch(
+                "videoclaw.generation.compose.align_clips",
+                new_callable=AsyncMock,
+                return_value=mock_report,
+            ),
+            patch(
+                "videoclaw.generation.compose.validate_composed_duration",
+                new_callable=AsyncMock,
+                return_value=mock_validation,
+            ),
+            patch("videoclaw.generation.compose.VideoComposer") as mock_composer_cls,
+        ):
+            mock_instance = mock_composer_cls.return_value
+            async def _mock_compose(*args, **kwargs):
+                composed = args[1]
+                composed.parent.mkdir(parents=True, exist_ok=True)
+                composed.write_bytes(b"composed")
+                return composed
+
+            mock_instance.compose = AsyncMock(side_effect=_mock_compose)
             mock_instance.render_final = AsyncMock(return_value=project_dir / "composed_final.mp4")
 
             await executor._handle_compose(node, state)
 
-        render_kwargs = mock_instance.render_final.call_args.kwargs
-        assert render_kwargs["audio_tracks"] == []
+        mock_instance.render_final.assert_not_called()
+        assert Path(state.assets["composed_video"]).read_bytes() == b"composed"
 
 
 # ---------------------------------------------------------------------------

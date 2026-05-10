@@ -1670,20 +1670,22 @@ async def test_build_review_dir_populates_all_subdirs(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_build_review_dir_links_project_composed_final(tmp_path: Path):
-    """build_review_dir must expose composed videos from the runtime project.
+async def test_build_review_dir_links_single_canonical_final(tmp_path: Path):
+    """build_review_dir must expose one canonical final video.
 
     The current runner writes ``composed*.mp4`` under
     ``{projects_dir}/{episode.project_id}/``.  Export/review must link that
-    file into deliverables so human auditors do not need to inspect the
-    runtime project directory.
+    file into deliverables as ``final/final.mp4`` so human auditors do not
+    need to choose between redundant pipeline intermediates.
     """
     from videoclaw.drama.checkpoint import build_review_dir
     from videoclaw.drama.models import DramaManager, DramaSeries, Episode
 
     project_id = "project_with_final"
+    composed_raw = tmp_path / project_id / "composed.mp4"
     composed = tmp_path / project_id / "composed_final.mp4"
     composed.parent.mkdir(parents=True)
+    composed_raw.write_bytes(b"raw")
     composed.write_bytes(b"final")
 
     series = DramaSeries(
@@ -1711,9 +1713,10 @@ async def test_build_review_dir_links_project_composed_final(tmp_path: Path):
         projects_dir=tmp_path,
     )
 
-    final_link = review_dir / "final" / "composed_final.mp4"
+    final_link = review_dir / "final" / "final.mp4"
     assert final_link.is_symlink()
     assert final_link.resolve() == composed
+    assert sorted(p.name for p in (review_dir / "final").iterdir()) == ["final.mp4"]
 
     build_review_dir(
         series,
@@ -1723,6 +1726,7 @@ async def test_build_review_dir_links_project_composed_final(tmp_path: Path):
     )
 
     assert not list((review_dir / "final").glob("*_v*.mp4"))
+    assert sorted(p.name for p in (review_dir / "final").iterdir()) == ["final.mp4"]
 
 
 # ---------------------------------------------------------------------------
@@ -1872,13 +1876,36 @@ class TestEpisodeStatus:
 
     def test_enum_completed_overrides_empty_disk(self, tmp_path):
         # Audit A7: when episode.status == COMPLETED, return "completed" even
-        # if disk is empty (e.g., fresh checkpoint dir hasn't been built yet).
+        # if disk is empty and the episode has no scene-level evidence to audit.
         from videoclaw.drama.checkpoint import _episode_status
         from videoclaw.drama.models import Episode, EpisodeStatus
         ep = Episode(number=1)
         ep.status = EpisodeStatus.COMPLETED
         # ep_dir doesn't even exist on disk
         assert _episode_status(ep, tmp_path / "missing_ep") == "completed"
+
+    def test_completed_episode_with_missing_scene_assets_is_generating(self, tmp_path):
+        from videoclaw.drama.checkpoint import _episode_status
+        from videoclaw.drama.models import DramaScene, Episode, EpisodeStatus
+
+        ep_dir = tmp_path / "ep01"
+        videos_dir = ep_dir / "videos"
+        final_dir = ep_dir / "final"
+        videos_dir.mkdir(parents=True)
+        final_dir.mkdir()
+        (videos_dir / "s01_opening.mp4").write_bytes(b"x")
+        (final_dir / "final.mp4").write_bytes(b"x")
+
+        ep = Episode(
+            number=1,
+            status=EpisodeStatus.COMPLETED,
+            scenes=[
+                DramaScene(description="Opening", scene_status="completed"),
+                DramaScene(description="Missing", scene_status="pending"),
+            ],
+        )
+
+        assert _episode_status(ep, ep_dir) == "generating"
 
     def test_enum_failed_overrides_disk(self, tmp_path):
         # FAILED is a terminal state; disk evidence shouldn't override.

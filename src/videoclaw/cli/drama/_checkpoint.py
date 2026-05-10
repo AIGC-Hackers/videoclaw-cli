@@ -3,16 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-import json as _json
-import subprocess
-import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 import typer
-
-if TYPE_CHECKING:
-    pass
 
 from videoclaw.cli._app import (
     configure_logging,
@@ -20,7 +14,6 @@ from videoclaw.cli._app import (
     show_banner,
 )
 from videoclaw.cli._output import get_console, get_output
-
 
 # ---------------------------------------------------------------------------
 # claw drama checkpoint-list
@@ -403,7 +396,7 @@ def checkpoint_assets(
     checkpoint_id: Annotated[str, typer.Argument(help="Checkpoint ID.")],
     open_dir: Annotated[
         bool,
-        typer.Option("--open", help="Open the asset directory in Finder/Explorer."),
+        typer.Option("--open", help="Open storyboard.html in a browser when available."),
     ] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
@@ -458,23 +451,24 @@ def checkpoint_assets(
     console.print(table)
 
     if open_dir:
-        # Open the REVIEW directory (not the checkpoints JSON dir)
+        from videoclaw.cli.drama._review_viewer import open_review_surface
+
+        # Open the REVIEW surface (not the checkpoints JSON dir)
         target = Path(snapshot.review_dir) if snapshot.review_dir else None
         if target and target.is_dir():
-            _open_in_file_manager(target)
-            console.print(f"[green]Opened {target}[/green]")
+            opened = open_review_surface(target)
+            console.print(f"[green]Opened {opened}[/green]")
         else:
             console.print("[yellow]Review directory not found on disk.[/yellow]")
 
-    out.set_result({"assets_count": len(snapshot.assets), "review_dir": snapshot.review_dir})
+    storyboard_html = None
+    if snapshot.review_dir:
+        html = Path(snapshot.review_dir) / "storyboard.html"
+        if html.is_file():
+            storyboard_html = str(html)
+    out.set_result({
+        "assets_count": len(snapshot.assets),
+        "review_dir": snapshot.review_dir,
+        "storyboard_html": storyboard_html,
+    })
     out.emit()
-
-
-def _open_in_file_manager(path: Path) -> None:
-    """Open a directory in the platform file manager."""
-    if sys.platform == "darwin":
-        subprocess.run(["open", str(path)], check=False)  # noqa: S603, S607
-    elif sys.platform == "win32":
-        subprocess.run(["explorer", str(path)], check=False)  # noqa: S603, S607
-    else:
-        subprocess.run(["xdg-open", str(path)], check=False)  # noqa: S603, S607

@@ -98,8 +98,13 @@ Order matters — characters before scenes (scenes reference characters):
 claw drama design-characters <series_id>     # Universal Reference turnaround sheets
 claw drama design-scenes <series_id>         # location reference images
 claw drama design-cover <series_id> --episode 1  # TikTok thumbnail
-claw drama assign-voices <series_id>         # TTS voice profile per character
+claw drama assign-voices <series_id>         # only for non-native-audio video models
 ```
+
+For the default `seedance-2.0` model, skip `assign-voices` unless the
+user explicitly opts into external TTS. Seedance 2.0 co-generates
+dialogue, subtitles, SFX, and ambient audio inside each clip; adding
+TTS, BGM, or subtitle overlays later degrades short-drama quality.
 
 Default image asset generation uses Evolink `gpt-image-2` at
 `resolution=1K` and `quality=medium` for character turnaround sheets,
@@ -221,6 +226,8 @@ claw drama series-view <series_id>           # rebuild series-level review (idem
   in `docs/deliverables/<drama>/review/`.
 - **Subtitle is rendered by Seedance inside the video**, not by FFmpeg
   external overlay. Don't fight this.
+- **Seedance 2.0 native audio is authoritative**. Do not add downstream
+  TTS, BGM, or subtitle overlay nodes for default Seedance drama runs.
 - **Reference images are HTTPS URLs only** (Seedance proxy rejects
   base64 data URIs).
 - **Faces in turnaround sheets are stylized / illustrated**, not

@@ -7,8 +7,10 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+# Side-effect import registers `series-view` / `export` on drama_app.
+import videoclaw.cli.drama  # noqa: F401
 from videoclaw import config as cfg
-from videoclaw.cli._app import drama_app
+from videoclaw.cli._app import app, drama_app
 from videoclaw.drama.models import (
     Character,
     DramaManager,
@@ -16,9 +18,6 @@ from videoclaw.drama.models import (
     DramaSeries,
     Episode,
 )
-
-# Side-effect import registers `series-view` / `export` on drama_app.
-import videoclaw.cli.drama  # noqa: F401
 
 
 @pytest.fixture
@@ -82,3 +81,30 @@ class TestDramaExportBuildsSeriesView:
         assert (
             deliv / "t" / "ep01_ep1" / "characters" / "ivy_turnaround.png"
         ).is_symlink()
+
+    def test_export_json_includes_storyboard_html(self, tmp_path, configured_paths):
+        projects, deliv = configured_paths
+        chars_src = tmp_path / "src"
+        chars_src.mkdir()
+        (chars_src / "ivy.png").write_bytes(b"x")
+        _make_series(projects, chars_src, with_scene=True)
+
+        result = CliRunner().invoke(app, ["--json", "drama", "export", "abc1234", "-e", "1"])
+
+        assert result.exit_code == 0, result.output
+        assert "storyboard_html" in result.output
+        assert str(deliv / "t" / "ep01_ep1" / "storyboard.html") in result.output
+
+
+def test_open_review_surface_prefers_storyboard_html(tmp_path, monkeypatch):
+    from videoclaw.cli.drama._review_viewer import open_review_surface
+
+    html = tmp_path / "storyboard.html"
+    html.write_text("<html></html>", encoding="utf-8")
+    opened: list[str] = []
+    monkeypatch.setattr("webbrowser.open", lambda uri: opened.append(uri) or True)
+
+    target = open_review_surface(tmp_path)
+
+    assert target == html
+    assert opened == [html.resolve().as_uri()]

@@ -184,33 +184,64 @@ def _relative_symlink_to_series_root(
 def _episode_status(episode: Episode, ep_dir: Path) -> str:
     """Derive a human-friendly episode status.
 
-    Terminal enum states (``COMPLETED`` / ``FAILED``) are authoritative
-    and override disk evidence (Audit A7) — useful when an episode is
-    marked complete but its review dir hasn't been built yet.
+    ``FAILED`` is authoritative. ``COMPLETED`` still requires scene-level
+    video evidence when scenes are present, so a partial first-3-shots run
+    cannot be reported as a completed episode.
 
-    For non-terminal enum states, derive from filesystem evidence with
+    Otherwise derive from filesystem evidence with
     most-complete-wins precedence:
         composed > audited > generating > pending
     """
     from videoclaw.drama.models import EpisodeStatus
 
-    if episode.status == EpisodeStatus.COMPLETED:
-        return "completed"
     if episode.status == EpisodeStatus.FAILED:
         return "failed"
 
     final_dir = ep_dir / "final"
-    if final_dir.is_dir() and any(final_dir.iterdir()):
-        return "composed"
     audit_dir = ep_dir / "audit"
     videos_dir = ep_dir / "videos"
     has_videos = videos_dir.is_dir() and any(videos_dir.iterdir())
     has_audit = audit_dir.is_dir() and any(audit_dir.iterdir())
+
+    expected, completed = _episode_video_completion(episode, ep_dir)
+    if expected and completed < expected:
+        has_final = final_dir.is_dir() and any(final_dir.iterdir())
+        if completed or has_videos or has_audit or has_final:
+            return "generating"
+        return "pending"
+
+    if episode.status == EpisodeStatus.COMPLETED:
+        return "completed"
+
+    if final_dir.is_dir() and any(final_dir.iterdir()):
+        return "composed"
     if has_videos and has_audit:
         return "audited"
     if has_videos:
         return "generating"
     return "pending"
+
+
+def _episode_video_completion(episode: Episode, ep_dir: Path) -> tuple[int, int]:
+    """Return ``(expected_scenes, scenes_with_video_evidence)``."""
+    if not episode.scenes:
+        return 0, 0
+
+    videos_dir = ep_dir / "videos"
+    video_names = []
+    if videos_dir.is_dir():
+        video_names = [p.name for p in videos_dir.iterdir() if p.is_file() or p.is_symlink()]
+
+    completed = 0
+    for idx, scene in enumerate(episode.scenes):
+        if scene.video_asset_path and Path(scene.video_asset_path).exists():
+            completed += 1
+            continue
+        slug = _scene_slug(idx, scene.description)
+        if any(name.startswith(slug) for name in video_names):
+            completed += 1
+
+    return len(episode.scenes), completed
 
 
 def review_dir_for_episode(
@@ -1121,22 +1152,52 @@ def _update_final_dir(
     series_dir: Path,
     projects_dir: Path | None = None,
 ) -> None:
-    """Symlink the composed episode video into ``final/``."""
+    """Symlink one canonical composed episode video into ``final/final.mp4``."""
     ep_prefix = f"ep{episode.number:02d}"
     candidate_dirs = [series_dir / f"{ep_prefix}_video"]
     if projects_dir is not None and episode.project_id:
         candidate_dirs.append(projects_dir / episode.project_id)
 
+    selected = _select_final_video(candidate_dirs)
+    _clear_generated_final_links(final_dir)
+    if selected is None:
+        if final_dir.is_dir() and not any(final_dir.iterdir()):
+            final_dir.rmdir()
+        return
+
+    final_dir.mkdir(parents=True, exist_ok=True)
+    _safe_symlink(selected, final_dir / "final.mp4", keep_versions=True)
+
+
+def _select_final_video(candidate_dirs: list[Path]) -> Path | None:
+    priority = {
+        "final.mp4": 0,
+        "composed_final.mp4": 1,
+        "composed.mp4": 2,
+    }
+    candidates: list[tuple[int, str, Path]] = []
     for video_src in candidate_dirs:
-        if video_src.is_dir():
-            for f in sorted(video_src.iterdir()):
-                if not f.is_file():
-                    continue
-                if video_src != candidate_dirs[0] and f.suffix.lower() != ".mp4":
-                    continue
-                if "final" in f.name.lower() or "composed" in f.name.lower():
-                    final_dir.mkdir(parents=True, exist_ok=True)
-                    _safe_symlink(f, final_dir / f.name, keep_versions=True)
+        if not video_src.is_dir():
+            continue
+        for f in sorted(video_src.iterdir()):
+            if not f.is_file() or f.suffix.lower() != ".mp4":
+                continue
+            name = f.name.lower()
+            if name in priority:
+                candidates.append((priority[name], name, f))
+            elif "final" in name or "composed" in name:
+                candidates.append((10, name, f))
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda item: (item[0], item[1]))[0][2]
+
+
+def _clear_generated_final_links(final_dir: Path) -> None:
+    if not final_dir.is_dir():
+        return
+    for path in final_dir.glob("*.mp4"):
+        if path.is_symlink():
+            path.unlink()
 
 
 def _write_duration_analysis(lines: list[str], scenes: list[DramaScene]) -> None:

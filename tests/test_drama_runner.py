@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from videoclaw.core.planner import TaskType
 from videoclaw.drama.models import (
     Character,
     DramaScene,
@@ -46,6 +47,42 @@ def test_build_episode_dag():
     assert state.storyboard[0].shot_id == "ep01_s01"
     assert state.storyboard[1].model_id == "mock"
     assert ep.project_id == state.project_id
+
+
+def test_build_episode_dag_seedance_native_audio_skips_external_audio_nodes():
+    """Seedance 2.0 co-generates dialogue/SFX, so no external audio DAG is needed."""
+    series = DramaSeries(
+        title="Seedance Audio",
+        model_id="seedance-2.0",
+        language="zh",
+    )
+    ep = Episode(
+        number=1,
+        title="Pilot",
+        scenes=[
+            DramaScene(
+                scene_id="ep01_s01",
+                visual_prompt="shot 1",
+                dialogue="你好",
+                duration_seconds=5.0,
+            ),
+            DramaScene(
+                scene_id="ep01_s02",
+                visual_prompt="shot 2",
+                narration="夜幕降临",
+                duration_seconds=5.0,
+            ),
+        ],
+    )
+
+    dag, state = build_episode_dag(ep, series)
+
+    assert state.metadata["model_id"] == "seedance-2.0"
+    assert "subtitle_gen" not in dag.nodes
+    assert "music" not in dag.nodes
+    assert not any(n.task_type == TaskType.PER_SCENE_TTS for n in dag.nodes.values())
+    compose = dag.nodes["compose"]
+    assert compose.depends_on == ["video_ep01_s01", "video_ep01_s02"]
 
 
 # ---------------------------------------------------------------------------
@@ -278,6 +315,20 @@ def test_build_scene_regen_dag_with_recompose():
     # compose depends on video + subtitle_gen
     assert "video_ep01_s02" in dag.nodes["compose"].depends_on
     assert "subtitle_gen" in dag.nodes["compose"].depends_on
+
+
+def test_build_scene_regen_dag_seedance_native_audio_has_no_tts_or_subtitle():
+    """Seedance single-shot regen should preserve the native-audio pipeline."""
+    series, ep = _make_regen_fixtures()
+    series.model_id = "seedance-2.0"
+    _, state = build_episode_dag(ep, series)
+
+    dag = build_scene_regen_dag(ep, series, "ep01_s02", state, recompose=True)
+
+    assert "video_ep01_s02" in dag.nodes
+    assert "tts_ep01_s02" not in dag.nodes
+    assert "subtitle_gen" not in dag.nodes
+    assert dag.nodes["compose"].depends_on == ["video_ep01_s02"]
 
 
 def test_build_scene_regen_dag_invalid_scene_id():

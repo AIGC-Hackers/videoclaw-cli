@@ -72,6 +72,7 @@ class TestBuildEpisodeDag:
         series = DramaSeries(
             series_id="drama001",
             title="测试剧",
+            model_id="mock",
             aspect_ratio="9:16",
             characters=[
                 Character(name="林薇", description="女主", reference_image="/imgs/linwei.png"),

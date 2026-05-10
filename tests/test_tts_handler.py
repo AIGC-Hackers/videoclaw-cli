@@ -576,6 +576,7 @@ class TestRunnerVoiceMapInParams:
 
         series = DramaSeries(
             title="Test",
+            model_id="mock",
             characters=[
                 Character(
                     name="林薇",

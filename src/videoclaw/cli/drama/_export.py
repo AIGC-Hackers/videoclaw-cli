@@ -153,6 +153,13 @@ def drama_export(
             help="After export, publish the final video to a platform.",
         ),
     ] = False,
+    open_view: Annotated[
+        bool,
+        typer.Option(
+            "--open", "--view",
+            help="Open each exported storyboard.html in a browser.",
+        ),
+    ] = False,
     platform: Annotated[
         str,
         typer.Option(
@@ -181,6 +188,7 @@ def drama_export(
     out = get_output()
     out._command = "drama.export"
 
+    from videoclaw.cli.drama._review_viewer import open_review_surface, storyboard_html_for
     from videoclaw.config import get_config
     from videoclaw.drama.checkpoint import build_review_dir, build_series_view
     from videoclaw.drama.models import DramaManager
@@ -234,6 +242,9 @@ def drama_export(
         )
         review_dirs.append(review_dir)
         console.print(f"  [green]ep{ep.number:02d}[/green] → {review_dir}")
+        if open_view:
+            opened = open_review_surface(review_dir)
+            console.print(f"    [cyan]opened[/cyan] {opened}")
 
         if copy_mode:
             materialized = _materialize_symlinks(review_dir)
@@ -342,6 +353,12 @@ def drama_export(
         "series_id": series_id,
         "deliverables_dir": str(deliverables_dir),
         "review_dirs": [str(d) for d in review_dirs],
+        "storyboard_html": [
+            str(html)
+            for d in review_dirs
+            for html in [storyboard_html_for(d)]
+            if html is not None
+        ],
         "copy_mode": copy_mode,
         "symlinks_materialized": total_symlinks_copied,
         **({"publish": publish_result_data} if publish_result_data else {}),

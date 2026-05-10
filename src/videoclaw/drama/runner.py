@@ -20,7 +20,7 @@ from typing import Any, Literal, cast
 from rich.prompt import Prompt
 
 from videoclaw.core.events import TASK_COMPLETED, EventBus, event_bus
-from videoclaw.core.executor import DAGExecutor
+from videoclaw.core.executor import DAGExecutor, uses_native_audio_generation
 from videoclaw.core.planner import DAG, TaskNode, TaskType
 from videoclaw.core.state import ProjectState, Shot, ShotStatus, StateManager
 from videoclaw.cost.tracker import CostTracker
@@ -381,9 +381,11 @@ def build_episode_dag(
         "episode_number": episode.number,
         "style": series.style,
         "aspect_ratio": series.aspect_ratio,
+        "model_id": series.model_id,
         "language": series.language,
         "script_locked": series.script_locked,
         "script_source": series.script_source,
+        "generate_audio": uses_native_audio_generation(series.model_id),
         "voice_map": {
             c.name: c.voice_profile.to_dict()
             for c in series.characters
@@ -469,7 +471,7 @@ def _build_drama_dag(
     *,
     max_shots: int | None = None,
 ) -> DAG:
-    """Build a drama-specific DAG with per-scene TTS and subtitle nodes.
+    """Build a drama-specific DAG.
 
     Pipeline shape::
 
@@ -477,18 +479,18 @@ def _build_drama_dag(
             |
         storyboard
             |
-        +---+---+---+   [per_scene_tts × N]   music
-        | video shots |          |                |
-        +---+---+---+          |                |
-            |              subtitle_gen           |
-            |                    |                |
-            +--------+-----------+----------------+
+        +---+---+---+   [external audio nodes for non-native-audio models]
+        | video shots |
+        +---+---+---+
+            |
+            +--------+
                      |
                   compose
                      |
                    render
     """
     dag = DAG()
+    native_audio = uses_native_audio_generation(series.model_id)
 
     # -- 1. Script generation (already done by DramaPlanner) --
     script_node = TaskNode(
@@ -551,7 +553,7 @@ def _build_drama_dag(
         ))
         video_node_ids.append(vid_id)
 
-    # -- 4. Per-scene TTS nodes (parallel, one per scene) --
+    # -- 4. Per-scene data, with external audio only for models that need it --
     character_voices: dict[str, dict[str, Any]] = {}
     for char in series.characters:
         if char.voice_profile:
@@ -564,41 +566,45 @@ def _build_drama_dag(
         scene_dict = _build_scene_dict(scene, character_voices)
         scenes_data.append(scene_dict)
 
-        tts_id = f"tts_{scene.scene_id}"
-        dag.add_node(TaskNode(
-            node_id=tts_id,
-            task_type=TaskType.PER_SCENE_TTS,
-            depends_on=["scene_validate"],
+        if not native_audio:
+            tts_id = f"tts_{scene.scene_id}"
+            dag.add_node(TaskNode(
+                node_id=tts_id,
+                task_type=TaskType.PER_SCENE_TTS,
+                depends_on=["scene_validate"],
+                params={
+                    "scene": scene_dict,
+                    "language": series.language,
+                    "voice_map": character_voices,
+                },
+            ))
+            tts_node_ids.append(tts_id)
+
+    if not native_audio:
+        # -- 5. Subtitle generation (depends on all per-scene TTS for accurate timing) --
+        subtitle_node = TaskNode(
+            node_id="subtitle_gen",
+            task_type=TaskType.SUBTITLE_GEN,
+            depends_on=tts_node_ids,
             params={
-                "scene": scene_dict,
-                "language": series.language,
-                "voice_map": character_voices,
+                "scenes": scenes_data,
             },
-        ))
-        tts_node_ids.append(tts_id)
+        )
+        dag.add_node(subtitle_node)
 
-    # -- 5. Subtitle generation (depends on all per-scene TTS for accurate timing) --
-    subtitle_node = TaskNode(
-        node_id="subtitle_gen",
-        task_type=TaskType.SUBTITLE_GEN,
-        depends_on=tts_node_ids,
-        params={
-            "scenes": scenes_data,
-        },
-    )
-    dag.add_node(subtitle_node)
-
-    # -- 6. Music (placeholder -- no API yet) --
-    music_node = TaskNode(
-        node_id="music",
-        task_type=TaskType.MUSIC,
-        depends_on=["scene_validate"],
-        params={},
-    )
-    dag.add_node(music_node)
+        # -- 6. Music (placeholder -- no API yet) --
+        music_node = TaskNode(
+            node_id="music",
+            task_type=TaskType.MUSIC,
+            depends_on=["scene_validate"],
+            params={},
+        )
+        dag.add_node(music_node)
 
     # -- 7. Compose: waits for all video clips + subtitle + music --
-    compose_deps = [*video_node_ids, "subtitle_gen", "music"]
+    compose_deps = [*video_node_ids]
+    if not native_audio:
+        compose_deps.extend(["subtitle_gen", "music"])
     compose_node = TaskNode(
         node_id="compose",
         task_type=TaskType.COMPOSE,
@@ -681,6 +687,8 @@ def build_scene_regen_dag(
     if manifest and manifest.verified:
         regen_scene_ref_map = dict(manifest.scene_references)
         regen_prop_ref_map = dict(manifest.prop_references)
+
+    native_audio = uses_native_audio_generation(series.model_id)
 
     # Build character voice lookup
     character_voices: dict[str, dict[str, Any]] = {}
@@ -767,16 +775,17 @@ def build_scene_regen_dag(
     }
 
     tts_id = f"tts_{scene_id}"
-    dag.add_node(TaskNode(
-        node_id=tts_id,
-        task_type=TaskType.PER_SCENE_TTS,
-        depends_on=[],
-        params={
-            "scene": scene_dict,
-            "language": series.language,
-            "voice_map": character_voices,
-        },
-    ))
+    if not native_audio:
+        dag.add_node(TaskNode(
+            node_id=tts_id,
+            task_type=TaskType.PER_SCENE_TTS,
+            depends_on=[],
+            params={
+                "scene": scene_dict,
+                "language": series.language,
+                "voice_map": character_voices,
+            },
+        ))
 
     # -- Optional recompose pipeline --
     if recompose:
@@ -798,15 +807,17 @@ def build_scene_regen_dag(
                 "transition": sc.transition,
             })
 
-        subtitle_node = TaskNode(
-            node_id="subtitle_gen",
-            task_type=TaskType.SUBTITLE_GEN,
-            depends_on=[tts_id],
-            params={"scenes": scenes_data},
-        )
-        dag.add_node(subtitle_node)
+        compose_deps = [vid_id]
+        if not native_audio:
+            subtitle_node = TaskNode(
+                node_id="subtitle_gen",
+                task_type=TaskType.SUBTITLE_GEN,
+                depends_on=[tts_id],
+                params={"scenes": scenes_data},
+            )
+            dag.add_node(subtitle_node)
+            compose_deps.append("subtitle_gen")
 
-        compose_deps = [vid_id, "subtitle_gen"]
         compose_node = TaskNode(
             node_id="compose",
             task_type=TaskType.COMPOSE,
