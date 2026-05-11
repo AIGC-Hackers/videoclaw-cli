@@ -37,7 +37,7 @@ bash packaging/setup.sh        # interactive wizard, writes ~/.config/videoclaw/
 Until videoclaw is on PyPI, install from a wheel URL:
 
 ```bash
-uvx --from https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.3/videoclaw-0.1.3-py3-none-any.whl videoclaw setup
+uvx --from https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.4/videoclaw-0.1.4-py3-none-any.whl videoclaw setup
 ```
 
 Or from local source (works today):
@@ -125,7 +125,7 @@ claw --json doctor
 ```bash
 # 1. Install (one-time)
 uvx --from <wheel-url> videoclaw setup
-# → installs videoclaw-* skills as videoclaw-workflow-0.1.3/, etc.
+# → installs videoclaw-* skills as videoclaw-workflow-0.1.4/, etc.
 #   into ~/.openclaw-autoclaw/skills/ (versioned naming convention)
 
 # 2. Verify
@@ -356,7 +356,7 @@ exit_codes (0-4), distribution channels, health_check.
 
 ```bash
 python packaging/skills-validate.py skills/
-# VALID: 5 skill(s) under skills conform (version 0.1.3)
+# VALID: 5 skill(s) under skills conform (version 0.1.4)
 ```
 
 ## Write-scope (M002 + M003)

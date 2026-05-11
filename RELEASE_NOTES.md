@@ -4,6 +4,39 @@ All notable changes to videoclaw are documented in this file. Format
 follows the google/agents-cli style — `## [<version>] - YYYY-MM-DD`
 with grouped bullets.
 
+## [0.1.4] - 2026-05-11
+
+Stabilizes the external coding-agent drama packaging flow after real
+deliverables review.
+
+### Behavior
+
+- `seedance-2.0` drama runs now treat model-native dialogue, subtitles, SFX,
+  and ambient audio as authoritative.
+- Default Seedance drama DAGs skip downstream TTS, BGM, and subtitle overlay
+  nodes so compose only assembles generated clips instead of re-mixing audio.
+- Episode deliverables expose one canonical `final/final.mp4` instead of
+  multiple ambiguous composed/final intermediates.
+- `_SERIES.md` episode status now reflects actual shot video evidence, so
+  partial first-shot runs are not reported as complete.
+- `claw drama export --open/--view` and `checkpoint-assets --open` open
+  `storyboard.html` directly for human review when available.
+
+### Agent CLI
+
+- `claw drama export --json` includes `storyboard_html` paths for coding
+  agents that need to surface review pages.
+- Workflow skills and `AGENTS.md` document the Seedance native-audio rule for
+  external coding agents.
+- Release metadata, install script defaults, manifest version, and skill
+  metadata are aligned to `0.1.4`.
+
+### Tests
+
+- Added regression coverage for Seedance native-audio DAG shape, compose
+  overlay suppression, canonical final deliverables, partial episode status,
+  and HTML review-surface discovery.
+
 ## [0.1.3] - 2026-05-08
 
 Makes Evolink `gpt-image-2` the default image asset generator for coding-agent

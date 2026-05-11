@@ -13,11 +13,11 @@ description: >
 metadata:
   author: VideoClaw Contributors
   license: Modified-MIT
-  version: 0.1.3
+  version: 0.1.4
   requires:
     bins:
       - claw
-    install: "uvx --from https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.3/videoclaw-0.1.3-py3-none-any.whl videoclaw setup"
+    install: "uvx --from https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.4/videoclaw-0.1.4-py3-none-any.whl videoclaw setup"
 ---
 
 # Drama Series Setup

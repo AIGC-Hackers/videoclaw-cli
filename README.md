@@ -33,7 +33,7 @@ VideoClaw gives your coding agent the **CLI commands and skills** to plan, desig
 ### 1. Install the CLI + skills
 
 ```bash
-uvx --from https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.3/videoclaw-0.1.3-py3-none-any.whl videoclaw setup
+uvx --from https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.4/videoclaw-0.1.4-py3-none-any.whl videoclaw setup
 ```
 
 `claw setup` detects which coding agents are present and copies the
@@ -54,7 +54,7 @@ Use `claw setup --no-npx` to force the fallback explicitly, or
 - **From source (Python ≥ 3.12)** — `git clone … && uv sync && uv run claw --help`
 - **One-line installer (post-release)** — `curl -fsSL https://raw.githubusercontent.com/AIGC-Hackers/videoclaw-cli/main/install.sh | sh`
 - **Docker** — `docker build -t videoclaw-cli -f packaging/Dockerfile . && docker run --rm videoclaw-cli version`
-- **Wheel from GitHub Releases** — `pip install https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.3/videoclaw-0.1.3-py3-none-any.whl`
+- **Wheel from GitHub Releases** — `pip install https://github.com/AIGC-Hackers/videoclaw-cli/releases/download/v0.1.4/videoclaw-0.1.4-py3-none-any.whl`
 
 Full channel matrix: [`packaging/DISTRIBUTION-PLAN.md`](packaging/DISTRIBUTION-PLAN.md).
 
@@ -93,7 +93,7 @@ In a Claude Code conversation, say *"use videoclaw to make a drama"* — the `vi
 <summary><b>OpenClaw</b> — versioned skill names</summary>
 
 ```bash
-uvx --from <wheel-url> videoclaw setup    # → ~/.openclaw-autoclaw/skills/videoclaw-workflow-0.1.3/
+uvx --from <wheel-url> videoclaw setup    # → ~/.openclaw-autoclaw/skills/videoclaw-workflow-0.1.4/
 claw --json doctor
 ```
 Reference skills as `/videoclaw-workflow` in your orchestration prompts.
