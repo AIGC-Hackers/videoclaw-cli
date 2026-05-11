@@ -23,6 +23,9 @@ The CLI + skills path is the universal contract. The deployment
 manifest at `packaging/agent-cli.yaml` is **informational** —
 primary discovery is via skills.
 
+For a fresh-machine, agent-readable install/configure/test/use runbook, see
+`AGENT_EXTERNAL_CLI_GUIDE.md`.
+
 ## Two-command bootstrap
 
 ```bash

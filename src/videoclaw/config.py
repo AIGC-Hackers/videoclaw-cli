@@ -3,8 +3,20 @@
 from __future__ import annotations
 
 import functools
+import os
 from pathlib import Path
 from typing import Any
+
+
+def _env_files() -> tuple[Path, ...]:
+    """Return dotenv files in precedence order, lowest to highest."""
+    config_home = os.environ.get("XDG_CONFIG_HOME")
+    config_dir = (
+        Path(config_home) / "videoclaw"
+        if config_home
+        else Path.home() / ".config" / "videoclaw"
+    )
+    return (config_dir / ".env", Path(".env"))
 
 
 @functools.lru_cache(maxsize=1)
@@ -24,12 +36,13 @@ def get_config() -> Any:
         """VideoClaw application configuration.
 
         Values are read from environment variables prefixed with ``VIDEOCLAW_``,
-        falling back to a ``.env`` file in the current working directory.
+        falling back to a local ``.env`` file and then the user config
+        file written by ``packaging/setup.sh``.
         """
 
         model_config = SettingsConfigDict(
             env_prefix="VIDEOCLAW_",
-            env_file=".env",
+            env_file=_env_files(),
             env_file_encoding="utf-8",
             extra="ignore",
         )

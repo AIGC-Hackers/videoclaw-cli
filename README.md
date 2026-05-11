@@ -58,6 +58,9 @@ Use `claw setup --no-npx` to force the fallback explicitly, or
 
 Full channel matrix: [`packaging/DISTRIBUTION-PLAN.md`](packaging/DISTRIBUTION-PLAN.md).
 
+For a complete fresh-machine runbook that another coding agent can execute
+directly, see [`AGENT_EXTERNAL_CLI_GUIDE.md`](AGENT_EXTERNAL_CLI_GUIDE.md).
+
 </details>
 
 ### Release gate for deployment agents
